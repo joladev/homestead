@@ -3,6 +3,7 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
 import homestead/overview
@@ -28,6 +29,7 @@ pub opaque type Model {
     page: Page,
     account: Remote(tranquil.Account),
     is_account_menu_open: Bool,
+    is_menu_open: Bool,
     has_signed_out: Bool,
   )
 }
@@ -36,6 +38,7 @@ type Page {
   OverviewPage(overview.Model)
   SessionsPage(sessions.Model)
   ConnectedAppsPage(connected_apps.Model)
+  AppPasswordsPage(app_passwords.Model)
   PlaceholderPage
 }
 
@@ -49,6 +52,7 @@ pub fn init(session: Session, route: Route) -> #(Model, Effect(Message)) {
       page:,
       account: Loading,
       is_account_menu_open: False,
+      is_menu_open: False,
       has_signed_out: False,
     ),
     effect.batch([
@@ -59,10 +63,13 @@ pub fn init(session: Session, route: Route) -> #(Model, Effect(Message)) {
 }
 
 pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
-  use <- bool.guard(route == model.route, #(model, effect.none()))
+  use <- bool.guard(route == model.route, #(
+    Model(..model, is_menu_open: False),
+    effect.none(),
+  ))
   let #(page, effect) = open(model.session, route)
 
-  #(Model(..model, route:, page:), effect)
+  #(Model(..model, route:, page:, is_menu_open: False), effect)
 }
 
 fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
@@ -88,9 +95,14 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       )
     }
 
+    Access(AppPasswords) -> {
+      let #(page, effect) = app_passwords.init(session)
+
+      #(AppPasswordsPage(page), effect.map(effect, AppPasswordsProducedMessage))
+    }
+
     Account(_)
     | Access(SignInMethods)
-    | Access(AppPasswords)
     | Data(_)
     | Advanced(_)
     | Admin
@@ -103,6 +115,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     OverviewPage(page) -> overview.departure(page)
     SessionsPage(page) -> sessions.departure(page)
     ConnectedAppsPage(page) -> connected_apps.departure(page)
+    AppPasswordsPage(page) -> app_passwords.departure(page)
     PlaceholderPage -> None
   }
 
@@ -118,6 +131,9 @@ pub opaque type Message {
   OverviewProducedMessage(overview.Message)
   SessionsProducedMessage(sessions.Message)
   ConnectedAppsProducedMessage(connected_apps.Message)
+  AppPasswordsProducedMessage(app_passwords.Message)
+  UserToggledMenu
+  UserDismissedMenu
   UserToggledAccountMenu
   UserOpenedAccountMenu
   UserDismissedAccountMenu
@@ -160,10 +176,37 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    AppPasswordsProducedMessage(message), AppPasswordsPage(page) -> {
+      let #(page, effect) = app_passwords.update(page, message)
+
+      #(
+        Model(..model, page: AppPasswordsPage(page)),
+        effect.map(effect, AppPasswordsProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | SessionsProducedMessage(_), _
     | ConnectedAppsProducedMessage(_), _
+    | AppPasswordsProducedMessage(_), _
     -> #(model, effect.none())
+
+    UserToggledMenu, _ ->
+      case model.is_menu_open {
+        True -> #(
+          Model(..model, is_menu_open: False),
+          browser.focus(menu_button),
+        )
+        False -> #(
+          Model(..model, is_menu_open: True),
+          browser.focus(first_menu_link),
+        )
+      }
+
+    UserDismissedMenu, _ -> #(
+      Model(..model, is_menu_open: False),
+      browser.focus(menu_button),
+    )
 
     UserToggledAccountMenu, _ ->
       case model.is_account_menu_open {
@@ -213,6 +256,10 @@ fn end_session(session: Session) -> Effect(Message) {
   Nil
 }
 
+const menu_button = "menu-button"
+
+const first_menu_link = "menu-first-link"
+
 const account_menu_button = "account-menu-button"
 
 const sign_out_item = "account-menu-sign-out"
@@ -236,6 +283,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       ConnectedAppsPage(page) ->
         connected_apps.view(page) |> element.map(ConnectedAppsProducedMessage)
+
+      AppPasswordsPage(page) ->
+        app_passwords.view(page) |> element.map(AppPasswordsProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))
@@ -272,6 +322,12 @@ fn view_top_bar(
       element.none()
   }
 
+  let account_name = case model.account {
+    Loaded(value: account) -> Ok("@" <> account.handle)
+    Failed(_) -> Ok(session.account(model.session))
+    Loading -> Error(Nil)
+  }
+
   html.header([attribute.class("top-bar")], [
     html.a([attribute.class("brand"), route.href(Overview)], [
       html.text("Homestead"),
@@ -280,17 +336,106 @@ fn view_top_bar(
       [attribute.aria_label("Sections")],
       list.append(section_links, [admin_link]),
     ),
-    case model.account {
-      Loaded(value: account) ->
-        view_account_menu("@" <> account.handle, model.is_account_menu_open)
-      Failed(_) ->
-        view_account_menu(
-          session.account(model.session),
-          model.is_account_menu_open,
-        )
-      Loading -> element.none()
+    case account_name {
+      Ok(name) -> view_account_menu(name, model.is_account_menu_open)
+      Error(Nil) -> element.none()
+    },
+    html.button(
+      [
+        attribute.id(menu_button),
+        attribute.class("menu-button"),
+        attribute.aria_expanded(model.is_menu_open),
+        attribute.aria_controls("menu"),
+        event.on_click(UserToggledMenu),
+      ],
+      case model.is_menu_open {
+        True -> [html.text("Close"), view_icon("M5 5l10 10M15 5L5 15")]
+        False -> [html.text("Menu"), view_icon("M3 5.5h14M3 10h14M3 14.5h14")]
+      },
+    ),
+    case model.is_menu_open {
+      True -> view_menu(model, account_name)
+      False -> element.none()
     },
   ])
+}
+
+fn view_icon(path: String) -> Element(Message) {
+  html.svg(
+    [
+      attribute.attribute("viewBox", "0 0 20 20"),
+      attribute.attribute("width", "20"),
+      attribute.attribute("height", "20"),
+      attribute.attribute("fill", "none"),
+      attribute.attribute("stroke", "currentColor"),
+      attribute.attribute("stroke-width", "1.5"),
+      attribute.aria_hidden(True),
+    ],
+    [svg.path([attribute.attribute("d", path)])],
+  )
+}
+
+fn view_menu(
+  model: Model,
+  account_name: Result(String, Nil),
+) -> Element(Message) {
+  let link = fn(page: Route, attributes: List(Attribute(Message))) {
+    html.a(
+      [
+        route.href(page),
+        aria_current("page", page == model.route),
+        ..attributes
+      ],
+      [html.text(route.label(page))],
+    )
+  }
+  let groups =
+    list.map(route.sections, fn(section) {
+      case section {
+        Section(rest: [], first:, ..) ->
+          link(first, [attribute.id(first_menu_link)])
+        Section(label:, rest: [_, ..], ..) ->
+          html.div([], [
+            html.span([], [html.text(label)]),
+            ..list.map(route.section_pages(section), link(_, []))
+          ])
+      }
+    })
+  let admin = case model.account {
+    Loaded(tranquil.Account(is_admin: True, ..)) -> link(Admin, [])
+    Loaded(tranquil.Account(is_admin: False, ..)) | Loading | Failed(_) ->
+      element.none()
+  }
+
+  html.nav(
+    [
+      attribute.id("menu"),
+      attribute.class("menu"),
+      attribute.aria_label("All pages"),
+      on_key(fn(key) {
+        case key {
+          "Escape" -> Ok(UserDismissedMenu)
+          _ -> Error(Nil)
+        }
+      }),
+    ],
+    list.flatten([
+      groups,
+      [
+        admin,
+        html.footer([], [
+          case account_name {
+            Ok(name) -> html.code([], [html.text(name)])
+            Error(Nil) -> element.none()
+          },
+          html.button(
+            [attribute.class("action"), event.on_click(UserClickedSignOut)],
+            [html.text("Sign out")],
+          ),
+        ]),
+      ],
+    ]),
+  )
 }
 
 fn view_account_menu(name: String, is_open: Bool) -> Element(Message) {

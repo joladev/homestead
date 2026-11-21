@@ -71,8 +71,12 @@ pub type RememberedApp {
   RememberedApp(client_id: String, scopes: List(String))
 }
 
-pub opaque type Command {
-  Command(path: String, body: Json)
+pub type AppPassword {
+  AppPassword(name: String, created: Timestamp, scopes: Option(String))
+}
+
+pub opaque type Command(answer) {
+  Command(path: String, body: Json, read: fn(String) -> Result(answer, Problem))
 }
 
 pub fn account() -> Query(Account) {
@@ -185,18 +189,67 @@ pub fn remembered_apps() -> Query(List(RememberedApp)) {
   )
 }
 
-pub fn end_session(id: String) -> Command {
+pub fn app_passwords() -> Query(List(AppPassword)) {
+  query(
+    "com.atproto.server.listAppPasswords",
+    [],
+    decode.at(["passwords"], {
+      decode.list({
+        use name <- decode.field("name", decode.string)
+        use created <- decode.field("createdAt", timestamp_decoder())
+        use scopes <- decode.optional_field(
+          "scopes",
+          None,
+          decode.optional(decode.string),
+        )
+
+        decode.success(AppPassword(name:, created:, scopes:))
+      })
+    }),
+  )
+}
+
+pub fn create_app_password(
+  name: String,
+  scopes: Option(String),
+) -> Command(String) {
+  let body = case scopes {
+    Some(scopes) -> [
+      #("name", json.string(name)),
+      #("scopes", json.string(scopes)),
+    ]
+    None -> [#("name", json.string(name))]
+  }
+
+  Command(
+    path: "/xrpc/com.atproto.server.createAppPassword",
+    body: json.object(body),
+    read: fn(answer) {
+      json.parse(answer, decode.at(["password"], decode.string))
+      |> result.replace_error(NotUnderstood)
+    },
+  )
+}
+
+pub fn revoke_app_password(name: String) -> Command(Nil) {
+  command(
+    "com.atproto.server.revokeAppPassword",
+    json.object([#("name", json.string(name))]),
+  )
+}
+
+pub fn end_session(id: String) -> Command(Nil) {
   command(
     "_account.revokeSession",
     json.object([#("sessionId", json.string(id))]),
   )
 }
 
-pub fn end_other_sessions() -> Command {
+pub fn end_other_sessions() -> Command(Nil) {
   command("_account.revokeAllSessions", json.object([]))
 }
 
-pub fn forget_remembered_app(client_id: String) -> Command {
+pub fn forget_remembered_app(client_id: String) -> Command(Nil) {
   command(
     "_account.forgetRememberedAppChoice",
     json.object([#("clientId", json.string(client_id))]),
@@ -219,12 +272,13 @@ pub fn fetch(
 
 pub fn run(
   session: Session,
-  command: Command,
-) -> Promise(Result(Nil, Problem)) {
+  command: Command(answer),
+) -> Promise(Result(answer, Problem)) {
   let body = json.to_string(command.body)
   use response <- promise.map(session.post(session, command.path, body))
+  use answer <- result.try(accepted(session, response))
 
-  accepted(session, response) |> result.replace(Nil)
+  command.read(answer)
 }
 
 pub fn load(
@@ -242,8 +296,8 @@ pub fn load(
 
 pub fn perform(
   session: Session,
-  command: Command,
-  to_message: fn(Result(Nil, Problem)) -> message,
+  command: Command(answer),
+  to_message: fn(Result(answer, Problem)) -> message,
 ) -> Effect(message) {
   use dispatch <- effect.from
 
@@ -287,8 +341,8 @@ fn timestamp_decoder() -> Decoder(Timestamp) {
   }
 }
 
-fn command(name: String, body: Json) -> Command {
-  Command(path: "/xrpc/" <> name, body:)
+fn command(name: String, body: Json) -> Command(Nil) {
+  Command(path: "/xrpc/" <> name, body:, read: fn(_) { Ok(Nil) })
 }
 
 fn query(

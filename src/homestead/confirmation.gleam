@@ -21,7 +21,7 @@ pub fn view(
 ) -> Element(message) {
   html.div(
     [
-      attribute.class("row confirming"),
+      attribute.class("row warning confirming"),
       event.on("keydown", {
         use key <- decode.field("key", decode.string)
 
@@ -33,8 +33,8 @@ pub fn view(
     ],
     [
       html.strong([], [html.text(question)]),
-      html.span([], [html.text(consequence)]),
-      html.div([], [
+      html.span([attribute.class("details")], [html.text(consequence)]),
+      html.div([attribute.class("actions")], [
         html.button(
           [
             attribute.id(cancel_id),

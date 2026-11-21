@@ -4,6 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/uri.{Uri}
 import homestead/browser
 import homestead/confirmation
+import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Departure, type Session}
 import homestead/sessions
@@ -143,35 +144,29 @@ pub fn describe_app(client_id: String) -> String {
 }
 
 pub fn view(model: Model) -> Element(Message) {
-  html.main([attribute.class("page")], [
-    html.h1([attribute.class("prompt")], [html.text("apps")]),
-    sessions.view_list(model.sessions) |> element.map(SessionsProducedMessage),
+  layout.page([
+    layout.title_section("apps", [
+      sessions.view_list(model.sessions)
+      |> element.map(SessionsProducedMessage),
+    ]),
     case model.remembered {
       NotSupported | Remembered(apps: Loading) -> element.none()
 
       Remembered(apps: Failed(_)) ->
-        view_remembered([
-          html.p([attribute.class("problem")], [html.text("Couldn't load")]),
+        layout.section("remembered", [
+          layout.block([layout.problem("Couldn't load")]),
         ])
 
       Remembered(apps: Loaded(value: [])) ->
-        view_remembered([html.p([], [html.text("none")])])
+        layout.section("remembered", [
+          layout.block([layout.details_row([layout.dim("none")])]),
+        ])
 
       Remembered(apps: Loaded(value: apps)) ->
-        view_remembered([
-          html.div(
-            [attribute.class("rows")],
-            list.map(apps, view_app(_, model.forgetting)),
-          ),
+        layout.section("remembered", [
+          layout.block(list.map(apps, view_app(_, model.forgetting))),
         ])
     },
-  ])
-}
-
-fn view_remembered(content: List(Element(Message))) -> Element(Message) {
-  html.section([], [
-    html.h2([attribute.class("prompt")], [html.text("remembered")]),
-    ..content
   ])
 }
 
@@ -193,18 +188,21 @@ fn view_app(app: RememberedApp, forgetting: Forgetting) -> Element(Message) {
       )
 
     False ->
-      html.div([attribute.class("row")], [
-        html.span([], [html.text(name)]),
-        html.span([], [html.text(permissions)]),
-        html.button(
-          [
-            attribute.id(forget_button_id(app)),
-            attribute.class("action"),
-            attribute.disabled(forgetting == Forgetting),
-            event.on_click(UserClickedForget(app)),
-          ],
-          [html.text("Forget")],
-        ),
-      ])
+      layout.row(
+        tone: layout.Plain,
+        name:,
+        details: [html.text(permissions)],
+        actions: [
+          html.button(
+            [
+              attribute.id(forget_button_id(app)),
+              attribute.class("action"),
+              attribute.disabled(forgetting == Forgetting),
+              event.on_click(UserClickedForget(app)),
+            ],
+            [html.text("Forget")],
+          ),
+        ],
+      )
   }
 }

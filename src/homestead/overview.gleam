@@ -1,8 +1,9 @@
 import gleam/int
-import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import homestead/browser
+import homestead/layout.{type Tone, Plain, Warning}
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
   type Route, Access, Account, ConnectedApps, Data, Export, Profile, Sessions,
@@ -42,11 +43,6 @@ type Row {
     facts: Remote(String),
     action: #(String, Route),
   )
-}
-
-type Tone {
-  Plain
-  Warning
 }
 
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
@@ -137,7 +133,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
 
-    UserClickedCopy(text:) -> #(model, copy(text))
+    UserClickedCopy(text:) -> #(model, browser.copy(text, BrowserCopiedText))
 
     BrowserCopiedText(result: Ok(Nil)) -> #(
       Model(..model, copying: Copied),
@@ -150,18 +146,6 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
   }
 }
-
-fn copy(text: String) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  do_copy(text)
-  |> promise.tap(fn(copied) { dispatch(BrowserCopiedText(copied)) })
-
-  Nil
-}
-
-@external(javascript, "./overview_ffi.mjs", "copy")
-fn do_copy(text: String) -> Promise(Result(Nil, Nil))
 
 fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
   let contact = case account.contact_channel, account.contact_verified {
@@ -283,10 +267,10 @@ pub fn view(
   account: Remote(tranquil.Account),
 ) -> Element(Message) {
   case account, model.display_name {
-    Loading, _ | Loaded(_), Loading -> html.main([attribute.class("page")], [])
+    Loading, _ | Loaded(_), Loading -> layout.page([])
 
     Failed(_), _ ->
-      html.main([attribute.class("page")], [
+      layout.page([
         html.p([], [html.text("Couldn't load your account from the server.")]),
       ])
 
@@ -308,7 +292,7 @@ fn view_loaded(
   let handle = "@" <> account.handle
   let did = session.account(session)
 
-  html.main([attribute.class("page overview")], [
+  layout.page([
     html.section([], [
       html.p([attribute.class("prompt")], [html.text("whoami")]),
       html.h1([], [html.text(option.unwrap(display_name, handle))]),
@@ -322,10 +306,7 @@ fn view_loaded(
       html.p([attribute.class("did")], [
         html.code([], [html.text(did)]),
         html.button(
-          [
-            attribute.class("action"),
-            event.on_click(UserClickedCopy(did)),
-          ],
+          [attribute.class("action"), event.on_click(UserClickedCopy(did))],
           [
             html.text(case model.copying {
               NotCopied -> "Copy"
@@ -336,31 +317,23 @@ fn view_loaded(
         ),
       ]),
     ]),
-    html.section([], [
-      html.h2([attribute.class("prompt")], [html.text("status")]),
-      html.div(
-        [attribute.class("rows")],
-        list.map(rows(model, account, server), view_row),
-      ),
+    layout.section("status", [
+      layout.block(list.map(rows(model, account, server), view_row)),
     ]),
   ])
 }
 
 fn view_row(row: Row) -> Element(Message) {
-  let tone = case row.tone {
-    Plain -> attribute.none()
-    Warning -> attribute.class("warning")
-  }
-
-  html.div([attribute.class("row"), tone], [
-    html.strong([], [html.text(row.label)]),
-    case row.facts {
-      Loading ->
-        html.span([attribute.class("pending")], [html.text("Loading…")])
-      Loaded(value: facts) -> html.span([], [html.text(facts)])
-      Failed(_) ->
-        html.span([attribute.class("problem")], [html.text("Couldn't load")])
-    },
-    html.a([route.href(row.action.1)], [html.text(row.action.0)]),
-  ])
+  layout.row(
+    tone: row.tone,
+    name: row.label,
+    details: [
+      case row.facts {
+        Loading -> layout.dim("Loading…")
+        Loaded(value: facts) -> html.text(facts)
+        Failed(_) -> layout.dim("Couldn't load")
+      },
+    ],
+    actions: [html.a([route.href(row.action.1)], [html.text(row.action.0)])],
+  )
 }

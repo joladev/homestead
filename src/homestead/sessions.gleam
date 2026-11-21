@@ -1,13 +1,12 @@
-import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/string
 import gleam/time/calendar
 import gleam/time/duration.{type Duration}
-import gleam/time/timestamp.{type Timestamp}
 import homestead/browser
 import homestead/confirmation
+import homestead/date
+import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Departure, type Session}
 import homestead/tranquil.{type ActiveSession, type Problem}
@@ -153,27 +152,15 @@ fn sign_out(session: Session) -> Effect(Message) {
   Nil
 }
 
-pub fn describe_date(timestamp: Timestamp, offset: Duration) -> String {
-  let #(date, _) = timestamp.to_calendar(timestamp, offset)
-
-  int.to_string(date.day)
-  <> " "
-  <> string.slice(calendar.month_to_string(date.month), 0, 3)
-}
-
 pub fn view(model: Model) -> Element(Message) {
-  html.main([attribute.class("page")], [
-    html.h1([attribute.class("prompt")], [html.text("sessions")]),
-    view_list(model),
-  ])
+  layout.page([layout.title_section("sessions", [view_list(model)])])
 }
 
 pub fn view_list(model: Model) -> Element(Message) {
   case model.sessions {
     Loading -> element.none()
 
-    Failed(_) ->
-      html.p([attribute.class("problem")], [html.text("Couldn't load")])
+    Failed(_) -> layout.block([layout.problem("Couldn't load")])
 
     Loaded(value: sessions) -> {
       let #(current, others) =
@@ -184,68 +171,59 @@ pub fn view_list(model: Model) -> Element(Message) {
         |> list.partition(fn(session) { session.is_current })
       let listed = list.append(current, others)
 
-      element.fragment([
-        case listed {
-          [] -> html.p([], [html.text("none")])
-          [_, ..] ->
-            html.div(
-              [attribute.class("rows")],
-              list.append(list.map(listed, view_session(_, model)), [
-                case model.action {
-                  Confirming(target: OtherSessions) ->
-                    confirmation.view(
-                      question: "End all?",
-                      consequence: "They will have to sign in again.",
-                      accept: "End all sessions",
-                      on_cancel: UserCancelledEnd(OtherSessions),
-                      on_accept: UserConfirmedEnd(OtherSessions),
-                    )
-                  Confirming(target: OneSession(_))
-                  | Idle
-                  | Working
-                  | Refused(_) -> element.none()
-                },
-              ]),
-            )
-        },
-        case model.filter, listed, model.action {
-          Everything, [_, _, ..], Idle
-          | Everything, [_, _, ..], Working
-          | Everything, [_, _, ..], Refused(_)
-          | Everything, [_, _, ..], Confirming(target: OneSession(_))
-          ->
-            html.p([attribute.class("below-rows")], [
-              html.button(
-                [
-                  attribute.id(end_button_id(OtherSessions)),
-                  attribute.class("action"),
-                  attribute.disabled(model.action == Working),
-                  event.on_click(UserClickedEnd(OtherSessions)),
-                ],
-                [html.text("End all sessions")],
+      layout.block(
+        list.flatten([
+          case listed {
+            [] -> [layout.details_row([layout.dim("none")])]
+            [_, ..] -> list.map(listed, view_session(_, model))
+          },
+          case model.filter, listed, model.action {
+            Everything, [_, _, ..], Confirming(target: OtherSessions) -> [
+              confirmation.view(
+                question: "End all?",
+                consequence: "They will have to sign in again.",
+                accept: "End all sessions",
+                on_cancel: UserCancelledEnd(OtherSessions),
+                on_accept: UserConfirmedEnd(OtherSessions),
               ),
-            ])
-          Everything, [_, _, ..], Confirming(target: OtherSessions)
-          | Everything, [], _
-          | Everything, [_], _
-          | ThroughApps, _, _
-          -> element.none()
-        },
-        case model.action {
-          Refused(_) ->
-            html.p([attribute.class("problem")], [
-              html.text("The server didn't end that"),
-            ])
-          Idle | Confirming(_) | Working -> element.none()
-        },
-      ])
+            ]
+            Everything, [_, _, ..], Idle
+            | Everything, [_, _, ..], Working
+            | Everything, [_, _, ..], Refused(_)
+            | Everything, [_, _, ..], Confirming(target: OneSession(_))
+            -> [
+              layout.actions_row([
+                html.button(
+                  [
+                    attribute.id(end_button_id(OtherSessions)),
+                    attribute.class("action"),
+                    attribute.disabled(model.action == Working),
+                    event.on_click(UserClickedEnd(OtherSessions)),
+                  ],
+                  [html.text("End all sessions")],
+                ),
+              ]),
+            ]
+            Everything, [], _ | Everything, [_], _ | ThroughApps, _, _ -> []
+          },
+          case model.action {
+            Refused(_) -> [layout.problem("The server didn't end that")]
+            Idle | Confirming(_) | Working -> []
+          },
+        ]),
+      )
     }
   }
 }
 
 fn view_session(session: ActiveSession, model: Model) -> Element(Message) {
   let target = OneSession(session:)
-  let name = option.unwrap(session.app, "password sign-in")
+  let name = option.unwrap(session.app, "Password sign-in")
+  let dates =
+    "since "
+    <> date.describe(session.created, model.local_offset)
+    <> " \u{00B7} expires "
+    <> date.describe(session.expires, model.local_offset)
   let kind = case session.is_current, session.app {
     True, _ -> "This session"
     False, Some(_) -> "App"
@@ -263,43 +241,39 @@ fn view_session(session: ActiveSession, model: Model) -> Element(Message) {
       )
 
     False ->
-      html.div([attribute.class("row")], [
-        case model.filter {
-          Everything -> html.strong([], [html.text(kind)])
-          ThroughApps -> element.none()
+      layout.row(
+        tone: layout.Plain,
+        name:,
+        details: case model.filter {
+          Everything -> [
+            html.text(kind <> " "),
+            layout.dim("\u{00B7} " <> dates),
+          ]
+          ThroughApps -> [layout.dim(dates)]
         },
-        html.span([], [html.text(name)]),
-        html.time([], [
-          html.text(
-            "since " <> describe_date(session.created, model.local_offset),
-          ),
-        ]),
-        html.time([], [
-          html.text(
-            "expires " <> describe_date(session.expires, model.local_offset),
-          ),
-        ]),
-        case session.is_current {
-          True ->
-            html.button(
-              [
-                attribute.class("action"),
-                attribute.disabled(model.action == Working),
-                event.on_click(UserClickedSignOut),
-              ],
-              [html.text("Sign out")],
-            )
-          False ->
-            html.button(
-              [
-                attribute.id(end_button_id(target)),
-                attribute.class("action"),
-                attribute.disabled(model.action == Working),
-                event.on_click(UserClickedEnd(target)),
-              ],
-              [html.text("End")],
-            )
-        },
-      ])
+        actions: [
+          case session.is_current {
+            True ->
+              html.button(
+                [
+                  attribute.class("action"),
+                  attribute.disabled(model.action == Working),
+                  event.on_click(UserClickedSignOut),
+                ],
+                [html.text("Sign out")],
+              )
+            False ->
+              html.button(
+                [
+                  attribute.id(end_button_id(target)),
+                  attribute.class("action"),
+                  attribute.disabled(model.action == Working),
+                  event.on_click(UserClickedEnd(target)),
+                ],
+                [html.text("End")],
+              )
+          },
+        ],
+      )
   }
 }
