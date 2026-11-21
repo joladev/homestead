@@ -23,6 +23,11 @@ pub type Client {
   Client(id: String, redirect_uri: String)
 }
 
+pub type Departure {
+  SignedOut
+  Ended
+}
+
 pub type Problem {
   SignInRejected
   SessionEnded
@@ -86,6 +91,14 @@ pub fn get(
   do_get(session, path) |> promise.map(result.map_error(_, problem))
 }
 
+pub fn post(
+  session: Session,
+  path: String,
+  body: String,
+) -> Promise(Result(#(Int, String), Problem)) {
+  do_post(session, path, body) |> promise.map(result.map_error(_, problem))
+}
+
 @external(javascript, "./session_ffi.mjs", "forget")
 pub fn forget(session: Session) -> Nil
 
@@ -130,4 +143,11 @@ fn do_restore(account: String) -> Promise(Result(Session, String))
 fn do_get(
   session: Session,
   path: String,
+) -> Promise(Result(#(Int, String), String))
+
+@external(javascript, "./session_ffi.mjs", "post")
+fn do_post(
+  session: Session,
+  path: String,
+  body: String,
 ) -> Promise(Result(#(Int, String), String))

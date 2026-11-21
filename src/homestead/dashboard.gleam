@@ -3,13 +3,16 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import homestead/browser
+import homestead/connected_apps
 import homestead/overview
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
-  type Route, type Section, Access, Account, Admin, Advanced, Data, NotFound,
-  Overview, Section,
+  type Route, type Section, Access, Account, Admin, Advanced, AppPasswords,
+  ConnectedApps, Data, NotFound, Overview, Section, Sessions, SignInMethods,
 }
-import homestead/session.{type Session}
+import homestead/session.{type Departure, type Session}
+import homestead/sessions
 import homestead/tranquil.{type Problem}
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
@@ -31,12 +34,9 @@ pub opaque type Model {
 
 type Page {
   OverviewPage(overview.Model)
+  SessionsPage(sessions.Model)
+  ConnectedAppsPage(connected_apps.Model)
   PlaceholderPage
-}
-
-pub type Departure {
-  UserSignedOut
-  SessionEnded
 }
 
 pub fn init(session: Session, route: Route) -> #(Model, Effect(Message)) {
@@ -73,31 +73,51 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       #(OverviewPage(page), effect.map(effect, OverviewProducedMessage))
     }
 
-    Account(_) | Access(_) | Data(_) | Advanced(_) | Admin | NotFound(_) -> #(
-      PlaceholderPage,
-      effect.none(),
-    )
+    Access(Sessions) -> {
+      let #(page, effect) = sessions.init(session, sessions.Everything)
+
+      #(SessionsPage(page), effect.map(effect, SessionsProducedMessage))
+    }
+
+    Access(ConnectedApps) -> {
+      let #(page, effect) = connected_apps.init(session)
+
+      #(
+        ConnectedAppsPage(page),
+        effect.map(effect, ConnectedAppsProducedMessage),
+      )
+    }
+
+    Account(_)
+    | Access(SignInMethods)
+    | Access(AppPasswords)
+    | Data(_)
+    | Advanced(_)
+    | Admin
+    | NotFound(_) -> #(PlaceholderPage, effect.none())
   }
 }
 
 pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.account)
-    || case model.page {
-      OverviewPage(page) -> overview.has_ended_session(page)
-      PlaceholderPage -> False
-    }
+  let page = case model.page {
+    OverviewPage(page) -> overview.departure(page)
+    SessionsPage(page) -> sessions.departure(page)
+    ConnectedAppsPage(page) -> connected_apps.departure(page)
+    PlaceholderPage -> None
+  }
 
-  case model.has_signed_out, has_ended_session {
-    True, _ -> Some(UserSignedOut)
-    False, True -> Some(SessionEnded)
-    False, False -> None
+  case model.has_signed_out, remote.has_ended_session(model.account), page {
+    True, _, _ -> Some(session.SignedOut)
+    False, True, _ -> Some(session.Ended)
+    False, False, departure -> departure
   }
 }
 
 pub opaque type Message {
   ServerReturnedAccount(result: Result(tranquil.Account, Problem))
   OverviewProducedMessage(overview.Message)
+  SessionsProducedMessage(sessions.Message)
+  ConnectedAppsProducedMessage(connected_apps.Message)
   UserToggledAccountMenu
   UserOpenedAccountMenu
   UserDismissedAccountMenu
@@ -122,28 +142,49 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
-    OverviewProducedMessage(_), PlaceholderPage -> #(model, effect.none())
+    SessionsProducedMessage(message), SessionsPage(page) -> {
+      let #(page, effect) = sessions.update(page, message)
+
+      #(
+        Model(..model, page: SessionsPage(page)),
+        effect.map(effect, SessionsProducedMessage),
+      )
+    }
+
+    ConnectedAppsProducedMessage(message), ConnectedAppsPage(page) -> {
+      let #(page, effect) = connected_apps.update(page, message)
+
+      #(
+        Model(..model, page: ConnectedAppsPage(page)),
+        effect.map(effect, ConnectedAppsProducedMessage),
+      )
+    }
+
+    OverviewProducedMessage(_), _
+    | SessionsProducedMessage(_), _
+    | ConnectedAppsProducedMessage(_), _
+    -> #(model, effect.none())
 
     UserToggledAccountMenu, _ ->
       case model.is_account_menu_open {
         True -> #(
           Model(..model, is_account_menu_open: False),
-          focus(account_menu_button),
+          browser.focus(account_menu_button),
         )
         False -> #(
           Model(..model, is_account_menu_open: True),
-          focus(sign_out_item),
+          browser.focus(sign_out_item),
         )
       }
 
     UserOpenedAccountMenu, _ -> #(
       Model(..model, is_account_menu_open: True),
-      focus(sign_out_item),
+      browser.focus(sign_out_item),
     )
 
     UserDismissedAccountMenu, _ -> #(
       Model(..model, is_account_menu_open: False),
-      focus(account_menu_button),
+      browser.focus(account_menu_button),
     )
 
     UserLeftAccountMenu, _ -> #(
@@ -176,15 +217,6 @@ const account_menu_button = "account-menu-button"
 
 const sign_out_item = "account-menu-sign-out"
 
-fn focus(id: String) -> Effect(Message) {
-  use _, _ <- effect.after_paint
-
-  do_focus(id)
-}
-
-@external(javascript, "./dashboard_ffi.mjs", "focus")
-fn do_focus(id: String) -> Nil
-
 pub fn view(model: Model) -> Element(Message) {
   let current_section =
     list.find(route.sections, fn(section) {
@@ -198,6 +230,12 @@ pub fn view(model: Model) -> Element(Message) {
       OverviewPage(page) ->
         overview.view(page, model.session, model.account)
         |> element.map(OverviewProducedMessage)
+
+      SessionsPage(page) ->
+        sessions.view(page) |> element.map(SessionsProducedMessage)
+
+      ConnectedAppsPage(page) ->
+        connected_apps.view(page) |> element.map(ConnectedAppsProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

@@ -87,6 +87,18 @@ export function get(agent, path) {
   });
 }
 
+export function post(agent, path, body) {
+  return attempt(async () => {
+    const response = await agent.handle(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+
+    return [response.status, await response.text()];
+  });
+}
+
 export function forget(agent) {
   deleteStoredSession(agent.sub);
 }

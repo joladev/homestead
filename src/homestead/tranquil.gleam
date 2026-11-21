@@ -1,10 +1,11 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/javascript/promise.{type Promise}
-import gleam/json
+import gleam/json.{type Json}
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/time/timestamp.{type Timestamp}
 import gleam/uri.{type Uri}
 import homestead/session.{type Session}
 import lustre/effect.{type Effect}
@@ -57,7 +58,21 @@ pub type Authenticator {
 }
 
 pub type ActiveSession {
-  ActiveSession(id: String, app: Option(String), is_current: Bool)
+  ActiveSession(
+    id: String,
+    app: Option(String),
+    created: Timestamp,
+    expires: Timestamp,
+    is_current: Bool,
+  )
+}
+
+pub type RememberedApp {
+  RememberedApp(client_id: String, scopes: List(String))
+}
+
+pub opaque type Command {
+  Command(path: String, body: Json)
 }
 
 pub fn account() -> Query(Account) {
@@ -145,11 +160,46 @@ pub fn sessions() -> Query(List(ActiveSession)) {
       decode.list({
         use id <- decode.field("id", decode.string)
         use app <- decode.field("clientName", decode.optional(decode.string))
+        use created <- decode.field("createdAt", timestamp_decoder())
+        use expires <- decode.field("expiresAt", timestamp_decoder())
         use is_current <- decode.field("isCurrent", decode.bool)
 
-        decode.success(ActiveSession(id:, app:, is_current:))
+        decode.success(ActiveSession(id:, app:, created:, expires:, is_current:))
       })
     }),
+  )
+}
+
+pub fn remembered_apps() -> Query(List(RememberedApp)) {
+  query(
+    "_account.listRememberedAppChoices",
+    [],
+    decode.at(["choices"], {
+      decode.list({
+        use client_id <- decode.field("clientId", decode.string)
+        use scopes <- decode.field("scopes", decode.list(decode.string))
+
+        decode.success(RememberedApp(client_id:, scopes:))
+      })
+    }),
+  )
+}
+
+pub fn end_session(id: String) -> Command {
+  command(
+    "_account.revokeSession",
+    json.object([#("sessionId", json.string(id))]),
+  )
+}
+
+pub fn end_other_sessions() -> Command {
+  command("_account.revokeAllSessions", json.object([]))
+}
+
+pub fn forget_remembered_app(client_id: String) -> Command {
+  command(
+    "_account.forgetRememberedAppChoice",
+    json.object([#("clientId", json.string(client_id))]),
   )
 }
 
@@ -162,9 +212,53 @@ pub fn fetch(
   query: Query(answer),
 ) -> Promise(Result(answer, Problem)) {
   use response <- promise.map(session.get(session, query.path))
+  use body <- result.try(accepted(session, response))
 
+  parse(query, body)
+}
+
+pub fn run(
+  session: Session,
+  command: Command,
+) -> Promise(Result(Nil, Problem)) {
+  let body = json.to_string(command.body)
+  use response <- promise.map(session.post(session, command.path, body))
+
+  accepted(session, response) |> result.replace(Nil)
+}
+
+pub fn load(
+  session: Session,
+  query: Query(answer),
+  to_message: fn(Result(answer, Problem)) -> message,
+) -> Effect(message) {
+  use dispatch <- effect.from
+
+  fetch(session, query)
+  |> promise.tap(fn(answer) { dispatch(to_message(answer)) })
+
+  Nil
+}
+
+pub fn perform(
+  session: Session,
+  command: Command,
+  to_message: fn(Result(Nil, Problem)) -> message,
+) -> Effect(message) {
+  use dispatch <- effect.from
+
+  run(session, command)
+  |> promise.tap(fn(outcome) { dispatch(to_message(outcome)) })
+
+  Nil
+}
+
+fn accepted(
+  session: Session,
+  response: Result(#(Int, String), session.Problem),
+) -> Result(String, Problem) {
   case response {
-    Ok(#(200, body)) -> parse(query, body)
+    Ok(#(200, body)) -> Ok(body)
 
     Ok(#(401, _)) | Error(session.SessionEnded) -> {
       session.forget(session)
@@ -184,17 +278,17 @@ pub fn fetch(
   }
 }
 
-pub fn load(
-  session: Session,
-  query: Query(answer),
-  to_message: fn(Result(answer, Problem)) -> message,
-) -> Effect(message) {
-  use dispatch <- effect.from
+fn timestamp_decoder() -> Decoder(Timestamp) {
+  use text <- decode.then(decode.string)
 
-  fetch(session, query)
-  |> promise.tap(fn(answer) { dispatch(to_message(answer)) })
+  case timestamp.parse_rfc3339(text) {
+    Ok(timestamp) -> decode.success(timestamp)
+    Error(Nil) -> decode.failure(timestamp.from_unix_seconds(0), "Timestamp")
+  }
+}
 
-  Nil
+fn command(name: String, body: Json) -> Command {
+  Command(path: "/xrpc/" <> name, body:)
 }
 
 fn query(

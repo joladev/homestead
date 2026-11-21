@@ -223,7 +223,7 @@ h3 {
     margin: 6px 0 0;
 }
 
-.overview .prompt {
+.page .prompt {
     margin: 0;
     font-family: var(--font-code);
     font-size: 16px;
@@ -242,7 +242,7 @@ h3 {
     flex-wrap: wrap;
     align-items: center;
     gap: 0 14px;
-    margin: 0;
+    margin: 8px 0 0;
 }
 
 .did code {
@@ -251,25 +251,40 @@ h3 {
     overflow-wrap: anywhere;
 }
 
-.text-button {
-    min-height: 44px;
-    padding: 0 4px;
+.action {
+    min-height: 40px;
+    padding: 0 14px;
     background: none;
-    border: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 0;
     color: var(--text);
     font: inherit;
     font-size: 16px;
-    text-decoration: underline;
+    white-space: nowrap;
     cursor: pointer;
 }
 
-.text-button:hover {
+.action:hover {
+    border-color: var(--text);
     color: var(--text-strong);
 }
 
-.text-button:focus-visible {
+.action:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+}
+
+.action:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.action.accept,
+.action.accept:hover {
+    background: var(--attention);
+    border-color: var(--attention);
+    color: var(--ground);
+    font-weight: 600;
 }
 
 .rows {
@@ -302,6 +317,40 @@ h3 {
     display: flex;
     align-items: center;
     min-height: 44px;
+}
+
+.row.confirming strong {
+    color: var(--attention);
+}
+
+.row.confirming span {
+    color: var(--text-strong);
+}
+
+.row.confirming div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+}
+
+.row time {
+    min-width: 7em;
+    color: var(--text-dim);
+}
+
+.prompt ~ section {
+    margin-top: 34px;
+}
+
+.page > p,
+.page section > p {
+    margin: 6px 0 0;
+}
+
+.page .below-rows {
+    display: flex;
+    justify-content: flex-end;
+    margin: 12px 0 0;
 }
 
 .row.warning strong,

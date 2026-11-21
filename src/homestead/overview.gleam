@@ -8,7 +8,7 @@ import homestead/route.{
   type Route, Access, Account, ConnectedApps, Data, Export, Profile, Sessions,
   SignInMethods,
 }
-import homestead/session.{type Session}
+import homestead/session.{type Departure, type Session}
 import homestead/tranquil.{
   type ActiveSession, type Authenticator, type Passkey, type Problem,
 }
@@ -81,12 +81,18 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.display_name)
-  || remote.has_ended_session(model.passkeys)
-  || remote.has_ended_session(model.authenticator)
-  || remote.has_ended_session(model.has_password)
-  || remote.has_ended_session(model.sessions)
+pub fn departure(model: Model) -> Option(Departure) {
+  let has_ended_session =
+    remote.has_ended_session(model.display_name)
+    || remote.has_ended_session(model.passkeys)
+    || remote.has_ended_session(model.authenticator)
+    || remote.has_ended_session(model.has_password)
+    || remote.has_ended_session(model.sessions)
+
+  case has_ended_session {
+    True -> Some(session.Ended)
+    False -> None
+  }
 }
 
 pub opaque type Message {
@@ -317,7 +323,7 @@ fn view_loaded(
         html.code([], [html.text(did)]),
         html.button(
           [
-            attribute.class("text-button"),
+            attribute.class("action"),
             event.on_click(UserClickedCopy(did)),
           ],
           [

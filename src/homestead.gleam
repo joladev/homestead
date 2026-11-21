@@ -129,12 +129,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       case dashboard.departure(dashboard) {
         None -> open_dashboard(model, #(dashboard, effect))
 
-        Some(dashboard.UserSignedOut) -> #(
+        Some(session.SignedOut) -> #(
           Model(..model, state: SignedOut(sign_in:)),
           show_overview(),
         )
 
-        Some(dashboard.SessionEnded) -> #(
+        Some(session.Ended) -> #(
           Model(
             ..model,
             state: SignedOut(sign_in.report_ended_session(sign_in)),

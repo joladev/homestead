@@ -1,6 +1,9 @@
 import gleam/json
 import gleam/option.{None, Some}
-import homestead/tranquil.{Account, ActiveSession, OtherSoftware, Tranquil}
+import gleam/time/timestamp
+import homestead/tranquil.{
+  Account, ActiveSession, OtherSoftware, RememberedApp, Tranquil,
+}
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
   assert json.parse(
@@ -31,15 +34,33 @@ pub fn the_account_is_read_from_the_session_answer_test() {
 pub fn a_session_through_an_app_names_the_app_test() {
   let body =
     "{\"sessions\":[{\"id\":\"oauth:7\",\"sessionType\":\"oauth\",\"clientName\":\"fieldnotes.example\",\"createdAt\":\"2026-11-20T10:00:00+00:00\",\"expiresAt\":\"2026-12-04T10:00:00+00:00\",\"isCurrent\":true},{\"id\":\"jwt:3\",\"sessionType\":\"legacy\",\"clientName\":null,\"createdAt\":\"2026-11-19T10:00:00+00:00\",\"expiresAt\":\"2027-02-17T10:00:00+00:00\",\"isCurrent\":false}]}"
+  let assert Ok(created) = timestamp.parse_rfc3339("2026-11-20T10:00:00Z")
+  let assert Ok(expires) = timestamp.parse_rfc3339("2026-12-04T10:00:00Z")
 
-  assert tranquil.parse(tranquil.sessions(), body)
+  let assert Ok([through_app, direct]) =
+    tranquil.parse(tranquil.sessions(), body)
+
+  assert through_app
+    == ActiveSession(
+      id: "oauth:7",
+      app: Some("fieldnotes.example"),
+      created:,
+      expires:,
+      is_current: True,
+    )
+  assert direct.app == None
+}
+
+pub fn remembered_apps_carry_their_permissions_test() {
+  let body =
+    "{\"choices\":[{\"clientId\":\"https://fieldnotes.example/client.json\",\"scopes\":[\"atproto\",\"repo:*\"]}]}"
+
+  assert tranquil.parse(tranquil.remembered_apps(), body)
     == Ok([
-      ActiveSession(
-        id: "oauth:7",
-        app: Some("fieldnotes.example"),
-        is_current: True,
+      RememberedApp(
+        client_id: "https://fieldnotes.example/client.json",
+        scopes: ["atproto", "repo:*"],
       ),
-      ActiveSession(id: "jwt:3", app: None, is_current: False),
     ])
 }
 
