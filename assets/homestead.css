@@ -1,0 +1,57 @@
+@font-face {
+    font-family: "Spline Sans";
+    src: url("fonts/spline-sans.woff2") format("woff2");
+    font-weight: 300 700;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Spline Sans Mono";
+    src: url("fonts/spline-sans-mono.woff2") format("woff2");
+    font-weight: 300 700;
+    font-display: swap;
+}
+
+:root {
+    --ground: #1a1d1d;
+    --raised: #242829;
+    --line: #3a4043;
+    --line-strong: #5a6165;
+    --text: #d7dcdb;
+    --text-strong: #ffffff;
+    --text-dim: #98a09f;
+    --accent: #ffaff3;
+    --attention: #e8c170;
+    --good: #a8d8a0;
+
+    --font-text: "Spline Sans", system-ui, sans-serif;
+    --font-code: "Spline Sans Mono", ui-monospace, monospace;
+}
+
+body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--font-text);
+    font-size: 17px;
+    line-height: 1.5;
+}
+
+h1 {
+    margin: 0;
+    font-size: 38px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+
+code {
+    font-family: var(--font-code);
+    color: var(--accent);
+}
+
+.page {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 36px 32px;
+}
