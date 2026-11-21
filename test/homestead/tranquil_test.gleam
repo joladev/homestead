@@ -2,7 +2,8 @@ import gleam/json
 import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
-  Account, ActiveSession, OtherSoftware, RememberedApp, Tranquil,
+  Account, ActiveSession, ChannelUsername, ContactPreferences, OtherSoftware,
+  RememberedApp, Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -25,6 +26,8 @@ pub fn the_account_is_read_from_the_session_answer_test() {
   assert tranquil.parse(tranquil.account(), body)
     == Ok(Account(
       handle: "noor.harbor.example",
+      email: Some("noor@harbor.example"),
+      email_verified: False,
       contact_channel: "email",
       contact_verified: False,
       is_admin: True,
@@ -77,4 +80,30 @@ pub fn a_profile_without_a_display_name_has_none_test() {
       "{\"value\":{\"$type\":\"app.bsky.actor.profile\"}}",
     )
     == Ok(None)
+}
+
+pub fn a_server_without_contact_channels_offers_email_test() {
+  assert tranquil.parse(
+      tranquil.server(),
+      "{\"availableUserDomains\":[\"harbor.example\"]}",
+    )
+    == Ok(
+      Server(handle_domains: ["harbor.example"], contact_channels: ["email"]),
+    )
+}
+
+pub fn contact_preferences_list_each_channels_username_test() {
+  assert tranquil.parse(
+      tranquil.contact_preferences(),
+      "{\"preferredChannel\":\"discord\",\"discordUsername\":\"noor\",
+        \"discordVerified\":true,\"telegramUsername\":null,
+        \"telegramVerified\":false}",
+    )
+    == Ok(
+      ContactPreferences(preferred: "discord", usernames: [
+        ChannelUsername(channel: "discord", username: "noor", verified: True),
+        ChannelUsername(channel: "telegram", username: "", verified: False),
+        ChannelUsername(channel: "signal", username: "", verified: False),
+      ]),
+    )
 }

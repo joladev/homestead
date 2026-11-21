@@ -79,6 +79,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ServerReturnedRememberedApps(result: Error(tranquil.Refused(
       "MethodNotImplemented",
+      _,
     ))) -> #(Model(..model, remembered: NotSupported), effect.none())
 
     ServerReturnedRememberedApps(result:) -> #(

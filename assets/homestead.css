@@ -311,7 +311,22 @@ h3 {
     font-weight: 600;
 }
 
-.row input[type="text"] {
+.block form {
+    display: contents;
+}
+
+.inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+}
+
+.inline input {
+    flex: 1 1 200px;
+}
+
+.row input:not([type="radio"]) {
     width: 100%;
     max-width: 520px;
     min-height: var(--control);
@@ -797,7 +812,7 @@ input:disabled {
         min-height: 44px;
     }
 
-    .row input[type="text"] {
+    .row input:not([type="radio"]) {
         max-width: none;
         min-height: 44px;
     }

@@ -103,10 +103,10 @@ pub opaque type Message {
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    ServerReturnedDisplayName(result: Error(tranquil.Refused("RecordNotFound"))) -> #(
-      Model(..model, display_name: Loaded(None)),
-      effect.none(),
-    )
+    ServerReturnedDisplayName(result: Error(tranquil.Refused(
+      "RecordNotFound",
+      _,
+    ))) -> #(Model(..model, display_name: Loaded(None)), effect.none())
 
     ServerReturnedDisplayName(result:) -> #(
       Model(..model, display_name: remote.from_result(result)),

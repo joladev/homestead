@@ -329,11 +329,11 @@ fn view_form(model: Model) -> Element(Message) {
 
 fn describe_refusal(problem: Problem) -> String {
   case problem {
-    tranquil.Refused("DuplicateAppPassword") -> "That name is already in use"
-    tranquil.Refused("RateLimitExceeded") ->
+    tranquil.Refused("DuplicateAppPassword", _) -> "That name is already in use"
+    tranquil.Refused("RateLimitExceeded", _) ->
       "Too many attempts. Try again later"
     tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_) | tranquil.NotUnderstood | tranquil.SessionEnded ->
+    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
       "The server didn't create it"
   }
 }

@@ -7,6 +7,7 @@ import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
 import homestead/overview
+import homestead/profile
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
   type Route, type Section, Access, Account, Admin, Advanced, AppPasswords,
@@ -39,6 +40,7 @@ type Page {
   SessionsPage(sessions.Model)
   ConnectedAppsPage(connected_apps.Model)
   AppPasswordsPage(app_passwords.Model)
+  ProfilePage(profile.Model)
   PlaceholderPage
 }
 
@@ -101,7 +103,13 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       #(AppPasswordsPage(page), effect.map(effect, AppPasswordsProducedMessage))
     }
 
-    Account(_)
+    Account(route.Profile) -> {
+      let #(page, effect) = profile.init(session)
+
+      #(ProfilePage(page), effect.map(effect, ProfileProducedMessage))
+    }
+
+    Account(route.Notifications)
     | Access(SignInMethods)
     | Data(_)
     | Advanced(_)
@@ -116,6 +124,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     SessionsPage(page) -> sessions.departure(page)
     ConnectedAppsPage(page) -> connected_apps.departure(page)
     AppPasswordsPage(page) -> app_passwords.departure(page)
+    ProfilePage(page) -> profile.departure(page)
     PlaceholderPage -> None
   }
 
@@ -132,6 +141,7 @@ pub opaque type Message {
   SessionsProducedMessage(sessions.Message)
   ConnectedAppsProducedMessage(connected_apps.Message)
   AppPasswordsProducedMessage(app_passwords.Message)
+  ProfileProducedMessage(profile.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -185,7 +195,21 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    ProfileProducedMessage(message), ProfilePage(page) -> {
+      let #(page, effect) = profile.update(page, message)
+      let account = case profile.account(page) {
+        Loaded(_) as account -> account
+        Loading | Failed(_) -> model.account
+      }
+
+      #(
+        Model(..model, page: ProfilePage(page), account:),
+        effect.map(effect, ProfileProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
+    | ProfileProducedMessage(_), _
     | SessionsProducedMessage(_), _
     | ConnectedAppsProducedMessage(_), _
     | AppPasswordsProducedMessage(_), _
@@ -286,6 +310,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       AppPasswordsPage(page) ->
         app_passwords.view(page) |> element.map(AppPasswordsProducedMessage)
+
+      ProfilePage(page) ->
+        profile.view(page) |> element.map(ProfileProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

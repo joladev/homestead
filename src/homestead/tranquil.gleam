@@ -2,6 +2,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
@@ -32,7 +33,7 @@ pub fn health_decoder() -> Decoder(Software) {
 pub type Problem {
   SessionEnded
   Unreachable
-  Refused(error: String)
+  Refused(error: String, message: String)
   NotUnderstood
 }
 
@@ -43,10 +44,24 @@ pub opaque type Query(answer) {
 pub type Account {
   Account(
     handle: String,
+    email: Option(String),
+    email_verified: Bool,
     contact_channel: String,
     contact_verified: Bool,
     is_admin: Bool,
   )
+}
+
+pub type Server {
+  Server(handle_domains: List(String), contact_channels: List(String))
+}
+
+pub type ContactPreferences {
+  ContactPreferences(preferred: String, usernames: List(ChannelUsername))
+}
+
+pub type ChannelUsername {
+  ChannelUsername(channel: String, username: String, verified: Bool)
 }
 
 pub type Passkey {
@@ -82,6 +97,16 @@ pub opaque type Command(answer) {
 pub fn account() -> Query(Account) {
   query("com.atproto.server.getSession", [], {
     use handle <- decode.field("handle", decode.string)
+    use email <- decode.optional_field(
+      "email",
+      None,
+      decode.optional(decode.string),
+    )
+    use email_verified <- decode.optional_field(
+      "emailConfirmed",
+      False,
+      decode.bool,
+    )
     use contact_channel <- decode.field("preferredChannel", decode.string)
     use contact_verified <- decode.field(
       "preferredChannelVerified",
@@ -91,10 +116,61 @@ pub fn account() -> Query(Account) {
 
     decode.success(Account(
       handle:,
+      email:,
+      email_verified:,
       contact_channel:,
       contact_verified:,
       is_admin:,
     ))
+  })
+}
+
+pub fn server() -> Query(Server) {
+  query("com.atproto.server.describeServer", [], {
+    use handle_domains <- decode.optional_field(
+      "availableUserDomains",
+      [],
+      decode.list(decode.string),
+    )
+    use contact_channels <- decode.optional_field(
+      "availableCommsChannels",
+      ["email"],
+      decode.list(decode.string),
+    )
+
+    decode.success(Server(handle_domains:, contact_channels:))
+  })
+}
+
+pub fn contact_preferences() -> Query(ContactPreferences) {
+  let username = fn(channel: String, next) {
+    use username <- decode.optional_field(
+      channel <> "Username",
+      None,
+      decode.optional(decode.string),
+    )
+    use verified <- decode.optional_field(
+      channel <> "Verified",
+      False,
+      decode.bool,
+    )
+
+    next(ChannelUsername(
+      channel:,
+      username: option.unwrap(username, ""),
+      verified:,
+    ))
+  }
+
+  query("_account.getNotificationPrefs", [], {
+    use preferred <- decode.field("preferredChannel", decode.string)
+    use discord <- username("discord")
+    use telegram <- username("telegram")
+    use signal <- username("signal")
+
+    decode.success(
+      ContactPreferences(preferred:, usernames: [discord, telegram, signal]),
+    )
   })
 }
 
@@ -238,6 +314,95 @@ pub fn revoke_app_password(name: String) -> Command(Nil) {
   )
 }
 
+pub fn change_handle(handle: String) -> Command(Nil) {
+  command(
+    "com.atproto.identity.updateHandle",
+    json.object([#("handle", json.string(handle))]),
+  )
+}
+
+pub fn resend_verification(account: String) -> Command(Nil) {
+  command(
+    "com.atproto.server.resendVerification",
+    json.object([#("did", json.string(account))]),
+  )
+}
+
+pub fn confirm_email(email: String, code: String) -> Command(Nil) {
+  command(
+    "com.atproto.server.confirmEmail",
+    json.object([#("email", json.string(email)), #("token", json.string(code))]),
+  )
+}
+
+pub fn request_email_change(new_email: String) -> Command(Bool) {
+  Command(
+    path: "/xrpc/com.atproto.server.requestEmailUpdate",
+    body: json.object([#("newEmail", json.string(new_email))]),
+    read: fn(answer) {
+      json.parse(answer, decode.at(["tokenRequired"], decode.bool))
+      |> result.replace_error(NotUnderstood)
+    },
+  )
+}
+
+pub fn change_email(email: String, code: Option(String)) -> Command(Nil) {
+  command(
+    "com.atproto.server.updateEmail",
+    json.object(case code {
+      Some(code) -> [
+        #("email", json.string(email)),
+        #("token", json.string(code)),
+      ]
+      None -> [#("email", json.string(email))]
+    }),
+  )
+}
+
+pub fn update_contact(
+  preferred: String,
+  usernames: List(#(String, String)),
+) -> Command(List(String)) {
+  let usernames =
+    list.map(usernames, fn(entry) {
+      #(entry.0 <> "Username", json.string(entry.1))
+    })
+
+  Command(
+    path: "/xrpc/_account.updateNotificationPrefs",
+    body: json.object([
+      #("preferredChannel", json.string(preferred)),
+      ..usernames
+    ]),
+    read: fn(answer) {
+      let decoder =
+        decode.optional_field(
+          "verificationRequired",
+          [],
+          decode.list(decode.string),
+          decode.success,
+        )
+
+      json.parse(answer, decoder) |> result.replace_error(NotUnderstood)
+    },
+  )
+}
+
+pub fn confirm_channel(
+  channel: String,
+  username: String,
+  code: String,
+) -> Command(Nil) {
+  command(
+    "_account.confirmChannelVerification",
+    json.object([
+      #("channel", json.string(channel)),
+      #("identifier", json.string(username)),
+      #("code", json.string(code)),
+    ]),
+  )
+}
+
 pub fn end_session(id: String) -> Command(Nil) {
   command(
     "_account.revokeSession",
@@ -314,17 +479,24 @@ fn accepted(
   case response {
     Ok(#(200, body)) -> Ok(body)
 
-    Ok(#(401, _)) | Error(session.SessionEnded) -> {
-      session.forget(session)
+    Error(session.SessionEnded) -> ended(session)
 
-      Error(SessionEnded)
-    }
+    Ok(#(status, body)) -> {
+      let refusal = {
+        use error <- decode.field("error", decode.string)
+        use message <- decode.optional_field("message", "", decode.string)
 
-    Ok(#(_, body)) ->
-      case json.parse(body, decode.at(["error"], decode.string)) {
-        Ok(error) -> Error(Refused(error:))
-        Error(_) -> Error(NotUnderstood)
+        decode.success(Refused(error:, message:))
       }
+
+      case status, json.parse(body, refusal) {
+        401, Ok(Refused(error: "AuthenticationFailed", ..))
+        | 401, Ok(Refused(error: "ExpiredToken", ..))
+        -> ended(session)
+        _, Ok(refused) -> Error(refused)
+        _, Error(_) -> Error(NotUnderstood)
+      }
+    }
 
     Error(session.SignInRejected)
     | Error(session.NothingStored)
@@ -356,4 +528,10 @@ fn query(
   }
 
   Query(path:, decoder:)
+}
+
+fn ended(session: Session) -> Result(String, Problem) {
+  session.forget(session)
+
+  Error(SessionEnded)
 }
