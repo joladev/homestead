@@ -1,6 +1,7 @@
 import at/did.{type Did}
-import at/did_document
+import at/did_document.{type DidDocument}
 import at/handle.{type Handle}
+import at/oauth.{type Client}
 import gleam/bool
 import gleam/dynamic/decode
 import gleam/http/request.{type Request}
@@ -13,6 +14,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri}
+import homestead/session
 import homestead/tern.{type Actor}
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
 import lustre/attribute.{type Attribute}
@@ -20,10 +22,17 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import modem
 import rsvp
 
 pub opaque type Model {
-  Model(identifier: String, suggestions: Suggestions, lookup: Lookup)
+  Model(
+    directory: Uri,
+    client: Client,
+    identifier: String,
+    suggestions: Suggestions,
+    lookup: Lookup,
+  )
 }
 
 type Suggestions {
@@ -34,7 +43,6 @@ type Suggestions {
 type Lookup {
   NotStarted
   Looking
-  Found(did: Did, server: Uri, version: String)
   Failed(problem: Problem)
 }
 
@@ -46,10 +54,27 @@ type Problem {
   ServerUnreachable
   ServerUnavailable
   NotTranquil
+  SignInNotPrepared
+  SignInNotCompleted
+  SessionNotEnded
 }
 
-pub fn init() -> Model {
-  Model(identifier: "", suggestions: Hidden(actors: []), lookup: NotStarted)
+pub fn init(directory: Uri, client: Client) -> Model {
+  Model(
+    directory:,
+    client:,
+    identifier: "",
+    suggestions: Hidden(actors: []),
+    lookup: NotStarted,
+  )
+}
+
+pub fn report_incomplete_sign_in(model: Model) -> Model {
+  Model(..model, lookup: Failed(SignInNotCompleted))
+}
+
+pub fn report_session_not_ended(model: Model) -> Model {
+  Model(..model, lookup: Failed(SessionNotEnded))
 }
 
 pub opaque type Message {
@@ -69,10 +94,11 @@ pub opaque type Message {
     result: Result(Response(String), rsvp.Error(String)),
   )
   ServerReturnedHealth(
-    did: Did,
+    account: DidDocument,
     server: Uri,
     result: Result(Software, rsvp.Error(String)),
   )
+  ServerPreparedSignIn(result: Result(Uri, session.Problem))
 }
 
 type Direction {
@@ -83,7 +109,7 @@ type Direction {
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case model.lookup {
     Looking -> update_while_looking(model, message)
-    NotStarted | Found(..) | Failed(_) -> update_while_idle(model, message)
+    NotStarted | Failed(_) -> update_while_idle(model, message)
   }
 }
 
@@ -133,11 +159,12 @@ fn update_while_idle(
 
     UserPickedSuggestion(actor:) -> #(
       Model(
+        ..model,
         identifier: actor.handle,
         suggestions: Hidden(actors: []),
         lookup: Looking,
       ),
-      fetch_document(actor.did),
+      fetch_document(model.directory, actor.did),
     )
 
     UserSubmittedForm(fields:) -> {
@@ -148,7 +175,8 @@ fn update_while_idle(
 
     HandleHostReturnedDid(..)
     | DirectoryReturnedDocument(..)
-    | ServerReturnedHealth(..) -> #(model, effect.none())
+    | ServerReturnedHealth(..)
+    | ServerPreparedSignIn(..) -> #(model, effect.none())
   }
 }
 
@@ -164,7 +192,7 @@ fn update_while_looking(
       }
 
       case did {
-        Ok(did) -> #(model, fetch_document(did))
+        Ok(did) -> #(model, fetch_document(model.directory, did))
         Error(Nil) -> #(
           Model(..model, lookup: Failed(HandleNotResolved)),
           effect.none(),
@@ -178,12 +206,13 @@ fn update_while_looking(
           fetched,
           DocumentNotFound,
         ))
-        use document <- result.try(
+        use account <- result.try(
           json.parse(response.body, did_document.decoder())
           |> result.replace_error(DocumentNotFound),
         )
+        use <- bool.guard(account.id != did, Error(DocumentNotFound))
         use server <- result.try(
-          did_document.pds(document)
+          did_document.pds(account)
           |> result.replace_error(ServerNotListed),
         )
         use request <- result.map(
@@ -191,7 +220,7 @@ fn update_while_looking(
           |> result.replace_error(ServerNotListed),
         )
 
-        check_health(did, server, request)
+        check_health(account, server, request)
       }
 
       case health_check {
@@ -203,22 +232,38 @@ fn update_while_looking(
       }
     }
 
-    ServerReturnedHealth(did:, server:, result: health) -> {
-      let lookup = case health {
-        Ok(Tranquil(version:)) -> Found(did:, server:, version:)
-        Ok(OtherSoftware) -> Failed(NotTranquil)
-        Error(rsvp.NetworkError) -> Failed(ServerUnreachable)
+    ServerReturnedHealth(account:, server:, result: health) -> {
+      let sign_in = case health {
+        Ok(Tranquil(_)) -> Ok(prepare_sign_in(account, server, model.client))
+        Ok(OtherSoftware) -> Error(NotTranquil)
+        Error(rsvp.NetworkError) -> Error(ServerUnreachable)
         Error(rsvp.HttpError(response)) if response.status == 503 ->
-          Failed(ServerUnavailable)
+          Error(ServerUnavailable)
         Error(rsvp.HttpError(_))
         | Error(rsvp.JsonError(_))
         | Error(rsvp.UnhandledResponse(_))
         | Error(rsvp.BadBody)
-        | Error(rsvp.BadUrl(_)) -> Failed(NotTranquil)
+        | Error(rsvp.BadUrl(_)) -> Error(NotTranquil)
       }
 
-      #(Model(..model, lookup:), effect.none())
+      case sign_in {
+        Ok(effect) -> #(model, effect)
+        Error(problem) -> #(
+          Model(..model, lookup: Failed(problem:)),
+          effect.none(),
+        )
+      }
     }
+
+    ServerPreparedSignIn(result: Ok(login)) -> #(
+      Model(..model, lookup: NotStarted),
+      modem.load(login),
+    )
+
+    ServerPreparedSignIn(result: Error(_)) -> #(
+      Model(..model, lookup: Failed(SignInNotPrepared)),
+      effect.none(),
+    )
 
     UserTypedIdentifier(..)
     | UserPausedTyping(..)
@@ -262,11 +307,16 @@ fn start_lookup(model: Model, text: String) -> #(Model, Effect(Message)) {
       actor.handle == string.lowercase(identifier)
     })
   let looking =
-    Model(identifier:, suggestions: Hidden(actors: []), lookup: Looking)
+    Model(
+      ..model,
+      identifier:,
+      suggestions: Hidden(actors: []),
+      lookup: Looking,
+    )
 
   case suggested, did.from_string(identifier), handle.from_string(identifier) {
-    Ok(actor), _, _ -> #(looking, fetch_document(actor.did))
-    Error(Nil), Ok(did), _ -> #(looking, fetch_document(did))
+    Ok(actor), _, _ -> #(looking, fetch_document(model.directory, actor.did))
+    Error(Nil), Ok(did), _ -> #(looking, fetch_document(model.directory, did))
     Error(Nil), Error(Nil), Ok(handle) -> #(looking, resolve_handle(handle))
     Error(Nil), Error(Nil), Error(Nil) -> #(
       Model(..looking, lookup: Failed(IdentifierNotUnderstood)),
@@ -297,26 +347,47 @@ fn resolve_handle(handle: Handle) -> Effect(Message) {
   rsvp.send(handle.resolve(handle), rsvp.expect_text(HandleHostReturnedDid))
 }
 
-fn fetch_document(did: Did) -> Effect(Message) {
-  rsvp.send(
-    did.document_request(did),
-    rsvp.expect_ok_response(DirectoryReturnedDocument(did, _)),
-  )
+fn fetch_document(directory: Uri, did: Did) -> Effect(Message) {
+  let request = case did.method(did) {
+    did.Plc -> {
+      let assert Ok(request) = request.from_uri(directory)
+
+      request
+      |> request.set_path("/" <> did.to_string(did))
+      |> request.set_header("accept", "application/json")
+    }
+    did.Web -> did.document_request(did)
+  }
+
+  rsvp.send(request, rsvp.expect_ok_response(DirectoryReturnedDocument(did, _)))
 }
 
 fn check_health(
-  did: Did,
+  account: DidDocument,
   server: Uri,
   request: Request(String),
 ) -> Effect(Message) {
   rsvp.send(
     request,
     rsvp.expect_json(tranquil.health_decoder(), ServerReturnedHealth(
-      did,
+      account,
       server,
       _,
     )),
   )
+}
+
+fn prepare_sign_in(
+  account: DidDocument,
+  server: Uri,
+  client: Client,
+) -> Effect(Message) {
+  use dispatch <- effect.from
+
+  session.begin(account, server, client)
+  |> promise.tap(fn(prepared) { dispatch(ServerPreparedSignIn(prepared)) })
+
+  Nil
 }
 
 pub fn view(model: Model) -> Element(Message) {
@@ -385,7 +456,7 @@ fn view_form(model: Model) -> Element(Message) {
         view_suggestions(actors, highlighted),
       ]),
       html.button([attribute.class("button"), attribute.disabled(is_looking)], [
-        html.text("Find my server"),
+        html.text("Sign in"),
       ]),
     ]),
   ])
@@ -487,19 +558,7 @@ fn view_lookup(lookup: Lookup) -> Element(message) {
     case lookup {
       NotStarted -> []
 
-      Looking -> [html.p([], [html.text("Looking up your server…")])]
-
-      Found(did:, server:, version:) -> [
-        html.h3([attribute.class("good")], [html.text("Tranquil server found")]),
-        html.dl([], [
-          html.dt([], [html.text("Server")]),
-          html.dd([], [html.code([], [html.text(uri.to_string(server))])]),
-          html.dt([], [html.text("Version")]),
-          html.dd([], [html.code([], [html.text(version)])]),
-          html.dt([], [html.text("Account")]),
-          html.dd([], [html.code([], [html.text(did.to_string(did))])]),
-        ]),
-      ]
+      Looking -> [html.p([], [html.text("Finding your server…")])]
 
       Failed(problem:) -> [
         html.h3([attribute.class("attention")], [
@@ -520,5 +579,9 @@ fn problem_message(problem: Problem) -> String {
     ServerUnavailable -> "That account's server is unavailable right now."
     NotTranquil ->
       "That account isn't on a Tranquil server, so it can't be managed here."
+    SignInNotPrepared -> "Couldn't start signing in on that server."
+    SignInNotCompleted -> "Signing in didn't complete. Try again."
+    SessionNotEnded ->
+      "You're signed out here, but the server didn't confirm ending the session."
   }
 }

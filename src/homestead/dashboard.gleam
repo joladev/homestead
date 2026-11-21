@@ -7,6 +7,7 @@ import homestead/route.{
 import lustre/attribute.{type Attribute}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/event
 
 type Section {
   Section(label: String, first: Route, rest: List(Route))
@@ -61,20 +62,28 @@ fn page_label(route: Route) -> String {
   }
 }
 
-pub fn view(route: Route) -> Element(message) {
+pub fn view(
+  route: Route,
+  handle: String,
+  on_sign_out: message,
+) -> Element(message) {
   let current_section =
     list.find(sections, fn(section) {
       list.contains(section_pages(section), route)
     })
 
   element.fragment([
-    view_top_bar(current_section),
+    view_top_bar(current_section, handle, on_sign_out),
     view_page_links(current_section, route),
     html.main([attribute.class("page")], view_page(route)),
   ])
 }
 
-fn view_top_bar(current: Result(Section, Nil)) -> Element(message) {
+fn view_top_bar(
+  current: Result(Section, Nil),
+  handle: String,
+  on_sign_out: message,
+) -> Element(message) {
   html.header([attribute.class("top-bar")], [
     html.a([attribute.class("brand"), route.href(Overview)], [
       html.text("Homestead"),
@@ -91,6 +100,10 @@ fn view_top_bar(current: Result(Section, Nil)) -> Element(message) {
         )
       }),
     ),
+    html.div([attribute.class("signed-in")], [
+      html.code([], [html.text("@" <> handle)]),
+      html.button([event.on_click(on_sign_out)], [html.text("Sign out")]),
+    ]),
   ])
 }
 

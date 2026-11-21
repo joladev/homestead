@@ -107,6 +107,35 @@ a:focus-visible {
     font-weight: 600;
 }
 
+.signed-in {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+    padding: 0 var(--link-inset);
+}
+
+.signed-in button {
+    min-height: 36px;
+    padding: 0 14px;
+    background: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 0;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+}
+
+.signed-in button:hover {
+    border-color: var(--text);
+    color: var(--text-strong);
+}
+
+.signed-in button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 .page-links {
     padding: 0 var(--bar-inset);
     border-bottom: 1px dashed var(--line);
@@ -357,31 +386,8 @@ input:disabled {
     margin-right: 12px;
 }
 
-.lookup .good::before {
-    background: var(--good);
-}
-
 .lookup .attention::before {
     background: var(--attention);
-}
-
-.lookup dl {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    margin: 10px 0 0;
-    border-top: 1px dashed var(--line);
-}
-
-.lookup dt,
-.lookup dd {
-    margin: 0;
-    padding: 10px 0;
-    border-bottom: 1px dashed var(--line);
-    overflow-wrap: anywhere;
-}
-
-.lookup dt {
-    padding-right: 24px;
 }
 
 @media (max-width: 720px) {
