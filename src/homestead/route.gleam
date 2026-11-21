@@ -7,6 +7,7 @@ pub type Route {
   Access(AccessPage)
   Data(DataPage)
   Advanced(AdvancedPage)
+  Admin
   NotFound(uri: Uri)
 }
 
@@ -32,6 +33,42 @@ pub type AdvancedPage {
   IdentityDocument
 }
 
+pub type Section {
+  Section(label: String, first: Route, rest: List(Route))
+}
+
+pub const sections = [
+  Section(label: "Overview", first: Overview, rest: []),
+  Section(
+    label: "Account",
+    first: Account(Profile),
+    rest: [
+      Account(Notifications),
+    ],
+  ),
+  Section(
+    label: "Access",
+    first: Access(SignInMethods),
+    rest: [
+      Access(Sessions),
+      Access(ConnectedApps),
+      Access(AppPasswords),
+    ],
+  ),
+  Section(label: "Data", first: Data(Export), rest: [Data(Repository)]),
+  Section(
+    label: "Advanced",
+    first: Advanced(Delegation),
+    rest: [
+      Advanced(IdentityDocument),
+    ],
+  ),
+]
+
+pub fn section_pages(section: Section) -> List(Route) {
+  [section.first, ..section.rest]
+}
+
 pub fn from_uri(uri: Uri) -> Route {
   case uri.path_segments(uri.path) {
     [] -> Overview
@@ -45,6 +82,7 @@ pub fn from_uri(uri: Uri) -> Route {
     ["data", "repository"] -> Data(Repository)
     ["advanced", "delegation"] -> Advanced(Delegation)
     ["advanced", "identity"] -> Advanced(IdentityDocument)
+    ["admin"] -> Admin
     _ -> NotFound(uri:)
   }
 }
@@ -62,7 +100,26 @@ pub fn to_path(route: Route) -> String {
     Data(Repository) -> "/data/repository"
     Advanced(Delegation) -> "/advanced/delegation"
     Advanced(IdentityDocument) -> "/advanced/identity"
+    Admin -> "/admin"
     NotFound(uri:) -> uri.path
+  }
+}
+
+pub fn label(route: Route) -> String {
+  case route {
+    Overview -> "Overview"
+    Account(Profile) -> "Profile and contact"
+    Account(Notifications) -> "Notifications"
+    Access(SignInMethods) -> "Sign-in methods"
+    Access(Sessions) -> "Sessions"
+    Access(ConnectedApps) -> "Connected apps"
+    Access(AppPasswords) -> "App passwords"
+    Data(Export) -> "Export and move"
+    Data(Repository) -> "Repository"
+    Advanced(Delegation) -> "Delegation"
+    Advanced(IdentityDocument) -> "Identity document"
+    Admin -> "Admin"
+    NotFound(_) -> "Page not found"
   }
 }
 

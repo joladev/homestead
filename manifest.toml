@@ -39,13 +39,12 @@ packages = [
   { name = "justin", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "justin", source = "hex", outer_checksum = "8B1C62269E8607D0A0ED698B7903984CE0BF7B6B3C0DEA3C6C8302B39402837B" },
   { name = "logging", version = "1.5.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "logging", source = "hex", outer_checksum = "BC5F18CE5DD9686100229FE5409BDC3DD5C46D5A7DF2F804AD2D8F0DD6C5060E" },
   { name = "lustre", version = "5.7.1", build_tools = ["gleam"], requirements = ["exception", "gleam_erlang", "gleam_json", "gleam_otp", "gleam_stdlib", "houdini"], otp_app = "lustre", source = "hex", outer_checksum = "663A2D1A3458914CA537A42AC07E601DD3FD85415EBDAF4717F2DFF6E86F90F9" },
-  { name = "lustre_dev_tools", version = "2.4.0", build_tools = ["gleam"], requirements = ["argv", "booklet", "collie", "filepath", "gleam_community_ansi", "gleam_crypto", "gleam_erlang", "gleam_http", "gleam_httpc", "gleam_json", "gleam_otp", "gleam_regexp", "gleam_stdlib", "glint", "group_registry", "justin", "lustre", "mist", "polly", "simplifile", "tom", "wisp"], otp_app = "lustre_dev_tools", source = "hex", outer_checksum = "3DC97379F0E8DC414E271FAB4F826EE9C935FD0BE9E009F410F8487A12C808A9" },
+  { name = "lustre_dev_tools", version = "2.4.0", build_tools = ["gleam"], requirements = ["argv", "booklet", "collie", "filepath", "gleam_community_ansi", "gleam_crypto", "gleam_erlang", "gleam_http", "gleam_httpc", "gleam_json", "gleam_otp", "gleam_regexp", "gleam_stdlib", "glint", "group_registry", "justin", "lustre", "mist", "polly", "simplifile", "tom", "wisp"], source = "git", repo = "https://github.com/lustre-labs/dev-tools", commit = "0b78fe48d1fab2f49435167141a5d8e7ff96e24a" },
   { name = "marceau", version = "1.3.0", build_tools = ["gleam"], requirements = [], otp_app = "marceau", source = "hex", outer_checksum = "2D1C27504BEF45005F5DFB18591F8610FB4BFA91744878210BDC464412EC44E9" },
   { name = "mist", version = "6.0.3", build_tools = ["gleam"], requirements = ["exception", "gleam_erlang", "gleam_http", "gleam_otp", "gleam_stdlib", "glisten", "gramps", "hpack_erl", "logging"], otp_app = "mist", source = "hex", outer_checksum = "1B07F321D5FA0CB162D81496F2DE96AEB6EF8980F4F38230A4CC3F849497E020" },
   { name = "modem", version = "2.1.3", build_tools = ["gleam"], requirements = ["gleam_stdlib", "lustre"], otp_app = "modem", source = "hex", outer_checksum = "F03560273C4E857025E7628BCE1EBA8B7E9A1A81A73CA998FC29FD1CED188968" },
   { name = "munch", version = "1.0.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "munch", source = "hex", outer_checksum = "207D3D74F58F060989275894939469B39E7D320607AF554F66CD401CA37D3A1F" },
   { name = "platform", version = "1.0.0", build_tools = ["gleam"], requirements = [], otp_app = "platform", source = "hex", outer_checksum = "8339420A95AD89AAC0F82F4C3DB8DD401041742D6C3F46132A8739F6AEB75391" },
-  { name = "plinth", version = "0.11.0", build_tools = ["gleam"], requirements = ["gleam_javascript", "gleam_json", "gleam_stdlib"], otp_app = "plinth", source = "hex", outer_checksum = "D30FDE8FC11EB76538AB498ACFF5399D0AE27993C74D63BE05AFE8CE80C4C839" },
   { name = "polly", version = "3.1.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_erlang", "gleam_otp", "gleam_stdlib", "simplifile"], otp_app = "polly", source = "hex", outer_checksum = "51FB565D81FF6212FDF3306D44419601F2A7C4EDD1F00FC9DA5C376A00AED4FE" },
   { name = "rsvp", version = "2.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_fetch", "gleam_http", "gleam_httpc", "gleam_javascript", "gleam_json", "gleam_stdlib", "lustre"], otp_app = "rsvp", source = "hex", outer_checksum = "A38F2DB9657E84A584278DB50FD903693FF370C22C191753B773546FEB2465F0" },
   { name = "simplifile", version = "2.7.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "A2727627B063E87351934C7F7F008F2D1FDB16F6DE0B8C79F9E46459CFC9C164" },
@@ -55,21 +54,16 @@ packages = [
   { name = "websocks", version = "4.0.1", build_tools = ["gleam"], requirements = ["gleam_crypto", "gleam_erlang", "gleam_stdlib"], otp_app = "websocks", source = "hex", outer_checksum = "89B0C31A032CBE28D4C5FB5CC25A8A690669FEBA501C63F99A4E8F5748750B2A" },
   { name = "wisp", version = "2.2.2", build_tools = ["gleam"], requirements = ["directories", "exception", "filepath", "gleam_crypto", "gleam_erlang", "gleam_http", "gleam_json", "gleam_stdlib", "houdini", "logging", "marceau", "mist", "simplifile"], otp_app = "wisp", source = "hex", outer_checksum = "5FF5F1E288C3437252ABB93D8F9CF42FF652CE7AD54480CFE736038DC09C4F22" },
   { name = "ywt_core", version = "2.0.0", build_tools = ["gleam"], requirements = ["bigi", "gleam_json", "gleam_stdlib", "gleam_time"], otp_app = "ywt_core", source = "hex", outer_checksum = "C9A1E930D64DEAE7B558A015D01C0AE0198147D5B4B5C00A36008EDB2EB11AA2" },
-  { name = "ywt_webcrypto", version = "2.0.0", build_tools = ["gleam"], requirements = ["gleam_javascript", "gleam_json", "gleam_stdlib", "gleam_time", "ywt_core"], otp_app = "ywt_webcrypto", source = "hex", outer_checksum = "7627B7EE9BC3141437ACB01DDED9223E014EA41F44392CE1632CC4711B03B405" },
 ]
 
 [requirements]
 at = { git = "https://tangled.org/hayleigh.dev/at", ref = "cef3259a7bd70c52dbe7ffec484ba180bbd8abbb" }
-gleam_fetch = { version = ">= 1.4.1 and < 2.0.0" }
 gleam_http = { version = ">= 4.5.0 and < 5.0.0" }
 gleam_javascript = { version = ">= 1.0.1 and < 2.0.0" }
 gleam_json = { version = ">= 3.1.0 and < 4.0.0" }
 gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
 lustre = { version = ">= 5.7.1 and < 6.0.0" }
-lustre_dev_tools = { version = ">= 2.4.0 and < 3.0.0" }
+lustre_dev_tools = { git = "https://github.com/lustre-labs/dev-tools", ref = "0b78fe48d1fab2f49435167141a5d8e7ff96e24a" }
 modem = { version = ">= 2.1.3 and < 3.0.0" }
-plinth = { version = ">= 0.11.0 and < 1.0.0" }
 rsvp = { version = ">= 2.0.0 and < 3.0.0" }
-ywt_core = { version = ">= 2.0.0 and < 3.0.0" }
-ywt_webcrypto = { version = ">= 2.0.0 and < 3.0.0" }

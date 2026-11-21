@@ -1,124 +1,376 @@
+import gleam/bool
+import gleam/dynamic/decode
+import gleam/javascript/promise
 import gleam/list
+import gleam/option.{type Option, None, Some}
+import homestead/overview
+import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
-  type Route, Access, Account, Advanced, AppPasswords, ConnectedApps, Data,
-  Delegation, Export, IdentityDocument, NotFound, Notifications, Overview,
-  Profile, Repository, Sessions, SignInMethods,
+  type Route, type Section, Access, Account, Admin, Advanced, Data, NotFound,
+  Overview, Section,
 }
+import homestead/session.{type Session}
+import homestead/tranquil.{type Problem}
 import lustre/attribute.{type Attribute}
+import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/svg
 import lustre/event
 
-type Section {
-  Section(label: String, first: Route, rest: List(Route))
+pub opaque type Model {
+  Model(
+    session: Session,
+    route: Route,
+    page: Page,
+    account: Remote(tranquil.Account),
+    is_account_menu_open: Bool,
+    has_signed_out: Bool,
+  )
 }
 
-const sections = [
-  Section(label: "Overview", first: Overview, rest: []),
-  Section(
-    label: "Account",
-    first: Account(Profile),
-    rest: [
-      Account(Notifications),
-    ],
-  ),
-  Section(
-    label: "Access",
-    first: Access(SignInMethods),
-    rest: [
-      Access(Sessions),
-      Access(ConnectedApps),
-      Access(AppPasswords),
-    ],
-  ),
-  Section(label: "Data", first: Data(Export), rest: [Data(Repository)]),
-  Section(
-    label: "Advanced",
-    first: Advanced(Delegation),
-    rest: [
-      Advanced(IdentityDocument),
-    ],
-  ),
-]
-
-fn section_pages(section: Section) -> List(Route) {
-  [section.first, ..section.rest]
+type Page {
+  OverviewPage(overview.Model)
+  PlaceholderPage
 }
 
-fn page_label(route: Route) -> String {
+pub type Departure {
+  UserSignedOut
+  SessionEnded
+}
+
+pub fn init(session: Session, route: Route) -> #(Model, Effect(Message)) {
+  let #(page, effect) = open(session, route)
+
+  #(
+    Model(
+      session:,
+      route:,
+      page:,
+      account: Loading,
+      is_account_menu_open: False,
+      has_signed_out: False,
+    ),
+    effect.batch([
+      tranquil.load(session, tranquil.account(), ServerReturnedAccount),
+      effect,
+    ]),
+  )
+}
+
+pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
+  use <- bool.guard(route == model.route, #(model, effect.none()))
+  let #(page, effect) = open(model.session, route)
+
+  #(Model(..model, route:, page:), effect)
+}
+
+fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
   case route {
-    Overview -> "Overview"
-    Account(Profile) -> "Profile and contact"
-    Account(Notifications) -> "Notifications"
-    Access(SignInMethods) -> "Sign-in methods"
-    Access(Sessions) -> "Sessions"
-    Access(ConnectedApps) -> "Connected apps"
-    Access(AppPasswords) -> "App passwords"
-    Data(Export) -> "Export and move"
-    Data(Repository) -> "Repository"
-    Advanced(Delegation) -> "Delegation"
-    Advanced(IdentityDocument) -> "Identity document"
-    NotFound(_) -> "Page not found"
+    Overview -> {
+      let #(page, effect) = overview.init(session)
+
+      #(OverviewPage(page), effect.map(effect, OverviewProducedMessage))
+    }
+
+    Account(_) | Access(_) | Data(_) | Advanced(_) | Admin | NotFound(_) -> #(
+      PlaceholderPage,
+      effect.none(),
+    )
   }
 }
 
-pub fn view(
-  route: Route,
-  handle: String,
-  on_sign_out: message,
-) -> Element(message) {
+pub fn departure(model: Model) -> Option(Departure) {
+  let has_ended_session =
+    remote.has_ended_session(model.account)
+    || case model.page {
+      OverviewPage(page) -> overview.has_ended_session(page)
+      PlaceholderPage -> False
+    }
+
+  case model.has_signed_out, has_ended_session {
+    True, _ -> Some(UserSignedOut)
+    False, True -> Some(SessionEnded)
+    False, False -> None
+  }
+}
+
+pub opaque type Message {
+  ServerReturnedAccount(result: Result(tranquil.Account, Problem))
+  OverviewProducedMessage(overview.Message)
+  UserToggledAccountMenu
+  UserOpenedAccountMenu
+  UserDismissedAccountMenu
+  UserLeftAccountMenu
+  UserClickedSignOut
+  ServerEndedSession
+}
+
+pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
+  case message, model.page {
+    ServerReturnedAccount(result:), _ -> #(
+      Model(..model, account: remote.from_result(result)),
+      effect.none(),
+    )
+
+    OverviewProducedMessage(message), OverviewPage(page) -> {
+      let #(page, effect) = overview.update(page, message)
+
+      #(
+        Model(..model, page: OverviewPage(page)),
+        effect.map(effect, OverviewProducedMessage),
+      )
+    }
+
+    OverviewProducedMessage(_), PlaceholderPage -> #(model, effect.none())
+
+    UserToggledAccountMenu, _ ->
+      case model.is_account_menu_open {
+        True -> #(
+          Model(..model, is_account_menu_open: False),
+          focus(account_menu_button),
+        )
+        False -> #(
+          Model(..model, is_account_menu_open: True),
+          focus(sign_out_item),
+        )
+      }
+
+    UserOpenedAccountMenu, _ -> #(
+      Model(..model, is_account_menu_open: True),
+      focus(sign_out_item),
+    )
+
+    UserDismissedAccountMenu, _ -> #(
+      Model(..model, is_account_menu_open: False),
+      focus(account_menu_button),
+    )
+
+    UserLeftAccountMenu, _ -> #(
+      Model(..model, is_account_menu_open: False),
+      effect.none(),
+    )
+
+    UserClickedSignOut, _ -> #(
+      Model(..model, is_account_menu_open: False),
+      end_session(model.session),
+    )
+
+    ServerEndedSession, _ -> #(
+      Model(..model, has_signed_out: True),
+      effect.none(),
+    )
+  }
+}
+
+fn end_session(session: Session) -> Effect(Message) {
+  use dispatch <- effect.from
+
+  session.end(session)
+  |> promise.tap(fn(_) { dispatch(ServerEndedSession) })
+
+  Nil
+}
+
+const account_menu_button = "account-menu-button"
+
+const sign_out_item = "account-menu-sign-out"
+
+fn focus(id: String) -> Effect(Message) {
+  use _, _ <- effect.after_paint
+
+  do_focus(id)
+}
+
+@external(javascript, "./dashboard_ffi.mjs", "focus")
+fn do_focus(id: String) -> Nil
+
+pub fn view(model: Model) -> Element(Message) {
   let current_section =
-    list.find(sections, fn(section) {
-      list.contains(section_pages(section), route)
+    list.find(route.sections, fn(section) {
+      list.contains(route.section_pages(section), model.route)
     })
 
   element.fragment([
-    view_top_bar(current_section, handle, on_sign_out),
-    view_page_links(current_section, route),
-    html.main([attribute.class("page")], view_page(route)),
+    view_top_bar(current_section, model),
+    view_page_links(current_section, model.route),
+    case model.page {
+      OverviewPage(page) ->
+        overview.view(page, model.session, model.account)
+        |> element.map(OverviewProducedMessage)
+
+      PlaceholderPage ->
+        html.main([attribute.class("page")], view_placeholder(model.route))
+    },
   ])
 }
 
 fn view_top_bar(
   current: Result(Section, Nil),
-  handle: String,
-  on_sign_out: message,
-) -> Element(message) {
+  model: Model,
+) -> Element(Message) {
+  let section_links =
+    list.map(route.sections, fn(section) {
+      html.a(
+        [
+          route.href(section.first),
+          attribute.data("label", section.label),
+          aria_current("true", current == Ok(section)),
+        ],
+        [html.text(section.label)],
+      )
+    })
+  let admin_link = case model.account {
+    Loaded(tranquil.Account(is_admin: True, ..)) ->
+      html.a(
+        [
+          route.href(Admin),
+          attribute.data("label", route.label(Admin)),
+          aria_current("true", model.route == Admin),
+        ],
+        [html.text(route.label(Admin))],
+      )
+    Loaded(tranquil.Account(is_admin: False, ..)) | Loading | Failed(_) ->
+      element.none()
+  }
+
   html.header([attribute.class("top-bar")], [
     html.a([attribute.class("brand"), route.href(Overview)], [
       html.text("Homestead"),
     ]),
     html.nav(
       [attribute.aria_label("Sections")],
-      list.map(sections, fn(section) {
-        html.a(
-          [
-            route.href(section.first),
-            aria_current("true", current == Ok(section)),
-          ],
-          [html.text(section.label)],
-        )
-      }),
+      list.append(section_links, [admin_link]),
     ),
-    html.div([attribute.class("signed-in")], [
-      html.code([], [html.text("@" <> handle)]),
-      html.button([event.on_click(on_sign_out)], [html.text("Sign out")]),
-    ]),
+    case model.account {
+      Loaded(value: account) ->
+        view_account_menu("@" <> account.handle, model.is_account_menu_open)
+      Failed(_) ->
+        view_account_menu(
+          session.account(model.session),
+          model.is_account_menu_open,
+        )
+      Loading -> element.none()
+    },
   ])
+}
+
+fn view_account_menu(name: String, is_open: Bool) -> Element(Message) {
+  let part = attribute.data("account-menu", "part")
+
+  html.div(
+    [
+      attribute.class("account-menu"),
+      on_key(fn(key) {
+        case key, is_open {
+          "Escape", True -> Ok(UserDismissedAccountMenu)
+          _, _ -> Error(Nil)
+        }
+      }),
+      event.on("focusout", {
+        let next_part =
+          decode.at(["relatedTarget", "dataset", "accountMenu"], decode.string)
+        use next_part <- decode.then(
+          decode.one_of(decode.map(next_part, Some), [decode.success(None)]),
+        )
+
+        case next_part {
+          None -> decode.success(UserLeftAccountMenu)
+          Some(_) ->
+            decode.failure(UserLeftAccountMenu, "focus outside the menu")
+        }
+      }),
+    ],
+    [
+      html.button(
+        [
+          attribute.id(account_menu_button),
+          part,
+          attribute.aria_haspopup("menu"),
+          attribute.aria_expanded(is_open),
+          attribute.aria_controls("account-menu"),
+          event.on_mouse_down(UserToggledAccountMenu) |> event.prevent_default,
+          on_key(fn(key) {
+            case key {
+              "Enter" | " " -> Ok(UserToggledAccountMenu)
+              "ArrowDown" -> Ok(UserOpenedAccountMenu)
+              _ -> Error(Nil)
+            }
+          }),
+        ],
+        [
+          html.text(name),
+          html.svg(
+            [
+              attribute.attribute("viewBox", "0 0 16 16"),
+              attribute.attribute("width", "16"),
+              attribute.attribute("height", "16"),
+              attribute.attribute("fill", "none"),
+              attribute.attribute("stroke", "currentColor"),
+              attribute.attribute("stroke-width", "1.5"),
+              attribute.aria_hidden(True),
+            ],
+            [svg.path([attribute.attribute("d", "M4 6l4 4 4-4")])],
+          ),
+        ],
+      ),
+      case is_open {
+        True ->
+          html.div([attribute.id("account-menu"), attribute.role("menu")], [
+            html.button(
+              [
+                attribute.id(sign_out_item),
+                part,
+                attribute.role("menuitem"),
+                event.on_click(UserClickedSignOut),
+              ],
+              [html.text("Sign out")],
+            ),
+          ])
+        False -> element.none()
+      },
+    ],
+  )
+}
+
+fn on_key(
+  to_message: fn(String) -> Result(Message, Nil),
+) -> Attribute(Message) {
+  event.advanced("keydown", {
+    use key <- decode.field("key", decode.string)
+
+    case to_message(key) {
+      Ok(message) ->
+        decode.success(event.handler(
+          dispatch: message,
+          prevent_default: True,
+          stop_propagation: True,
+        ))
+      Error(Nil) ->
+        decode.failure(
+          event.handler(
+            dispatch: UserLeftAccountMenu,
+            prevent_default: False,
+            stop_propagation: False,
+          ),
+          "a key the account menu responds to",
+        )
+    }
+  })
 }
 
 fn view_page_links(
   current: Result(Section, Nil),
   current_route: Route,
-) -> Element(message) {
+) -> Element(Message) {
   case current {
     Ok(Section(label:, rest: [_, ..], ..) as section) ->
       html.nav(
         [attribute.class("page-links"), attribute.aria_label(label <> " pages")],
-        list.map(section_pages(section), fn(page) {
+        list.map(route.section_pages(section), fn(page) {
           html.a(
             [route.href(page), aria_current("page", page == current_route)],
-            [html.text(page_label(page))],
+            [html.text(route.label(page))],
           )
         }),
       )
@@ -127,8 +379,8 @@ fn view_page_links(
   }
 }
 
-fn view_page(route: Route) -> List(Element(message)) {
-  let heading = html.h1([], [html.text(page_label(route))])
+fn view_placeholder(route: Route) -> List(Element(Message)) {
+  let heading = html.h1([], [html.text(route.label(route))])
 
   case route {
     NotFound(uri:) -> [
@@ -141,7 +393,9 @@ fn view_page(route: Route) -> List(Element(message)) {
       ]),
     ]
 
-    Overview | Account(_) | Access(_) | Data(_) | Advanced(_) -> [heading]
+    Overview | Account(_) | Access(_) | Data(_) | Advanced(_) | Admin -> [
+      heading,
+    ]
   }
 }
 

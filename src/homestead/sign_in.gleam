@@ -1,7 +1,6 @@
 import at/did.{type Did}
-import at/did_document.{type DidDocument}
+import at/did_document
 import at/handle.{type Handle}
-import at/oauth.{type Client}
 import gleam/bool
 import gleam/dynamic/decode
 import gleam/http/request.{type Request}
@@ -28,7 +27,6 @@ import rsvp
 pub opaque type Model {
   Model(
     directory: Uri,
-    client: Client,
     identifier: String,
     suggestions: Suggestions,
     lookup: Lookup,
@@ -56,13 +54,12 @@ type Problem {
   NotTranquil
   SignInNotPrepared
   SignInNotCompleted
-  SessionNotEnded
+  SessionEnded
 }
 
-pub fn init(directory: Uri, client: Client) -> Model {
+pub fn init(directory: Uri) -> Model {
   Model(
     directory:,
-    client:,
     identifier: "",
     suggestions: Hidden(actors: []),
     lookup: NotStarted,
@@ -73,8 +70,8 @@ pub fn report_incomplete_sign_in(model: Model) -> Model {
   Model(..model, lookup: Failed(SignInNotCompleted))
 }
 
-pub fn report_session_not_ended(model: Model) -> Model {
-  Model(..model, lookup: Failed(SessionNotEnded))
+pub fn report_ended_session(model: Model) -> Model {
+  Model(..model, lookup: Failed(SessionEnded))
 }
 
 pub opaque type Message {
@@ -93,11 +90,7 @@ pub opaque type Message {
     did: Did,
     result: Result(Response(String), rsvp.Error(String)),
   )
-  ServerReturnedHealth(
-    account: DidDocument,
-    server: Uri,
-    result: Result(Software, rsvp.Error(String)),
-  )
+  ServerReturnedHealth(did: Did, result: Result(Software, rsvp.Error(String)))
   ServerPreparedSignIn(result: Result(Uri, session.Problem))
 }
 
@@ -220,7 +213,7 @@ fn update_while_looking(
           |> result.replace_error(ServerNotListed),
         )
 
-        check_health(account, server, request)
+        check_health(did, request)
       }
 
       case health_check {
@@ -232,9 +225,9 @@ fn update_while_looking(
       }
     }
 
-    ServerReturnedHealth(account:, server:, result: health) -> {
+    ServerReturnedHealth(did:, result: health) -> {
       let sign_in = case health {
-        Ok(Tranquil(_)) -> Ok(prepare_sign_in(account, server, model.client))
+        Ok(Tranquil(_)) -> Ok(prepare_sign_in(did))
         Ok(OtherSoftware) -> Error(NotTranquil)
         Error(rsvp.NetworkError) -> Error(ServerUnreachable)
         Error(rsvp.HttpError(response)) if response.status == 503 ->
@@ -362,29 +355,17 @@ fn fetch_document(directory: Uri, did: Did) -> Effect(Message) {
   rsvp.send(request, rsvp.expect_ok_response(DirectoryReturnedDocument(did, _)))
 }
 
-fn check_health(
-  account: DidDocument,
-  server: Uri,
-  request: Request(String),
-) -> Effect(Message) {
+fn check_health(did: Did, request: Request(String)) -> Effect(Message) {
   rsvp.send(
     request,
-    rsvp.expect_json(tranquil.health_decoder(), ServerReturnedHealth(
-      account,
-      server,
-      _,
-    )),
+    rsvp.expect_json(tranquil.health_decoder(), ServerReturnedHealth(did, _)),
   )
 }
 
-fn prepare_sign_in(
-  account: DidDocument,
-  server: Uri,
-  client: Client,
-) -> Effect(Message) {
+fn prepare_sign_in(did: Did) -> Effect(Message) {
   use dispatch <- effect.from
 
-  session.begin(account, server, client)
+  session.begin(did)
   |> promise.tap(fn(prepared) { dispatch(ServerPreparedSignIn(prepared)) })
 
   Nil
@@ -581,7 +562,6 @@ fn problem_message(problem: Problem) -> String {
       "That account isn't on a Tranquil server, so it can't be managed here."
     SignInNotPrepared -> "Couldn't start signing in on that server."
     SignInNotCompleted -> "Signing in didn't complete. Try again."
-    SessionNotEnded ->
-      "You're signed out here, but the server didn't confirm ending the session."
+    SessionEnded -> "Your session ended. Sign in again."
   }
 }
