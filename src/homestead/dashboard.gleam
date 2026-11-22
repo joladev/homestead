@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
+import homestead/delete_account
 import homestead/export
 import homestead/notifications
 import homestead/overview
@@ -47,6 +48,7 @@ type Page {
   NotificationsPage(notifications.Model)
   SignInMethodsPage(sign_in_methods.Model)
   ExportPage(export.Model)
+  DeleteAccountPage(delete_account.Model)
   PlaceholderPage
 }
 
@@ -133,6 +135,15 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       )
     }
 
+    Account(route.DeleteAccount) -> {
+      let #(page, effect) = delete_account.init(session)
+
+      #(
+        DeleteAccountPage(page),
+        effect.map(effect, DeleteAccountProducedMessage),
+      )
+    }
+
     Data(route.Export) -> {
       let #(page, effect) = export.init(session)
 
@@ -156,6 +167,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     NotificationsPage(page) -> notifications.departure(page)
     SignInMethodsPage(page) -> sign_in_methods.departure(page)
     ExportPage(page) -> export.departure(page)
+    DeleteAccountPage(page) -> delete_account.departure(page)
     PlaceholderPage -> None
   }
 
@@ -176,6 +188,7 @@ pub opaque type Message {
   NotificationsProducedMessage(notifications.Message)
   SignInMethodsProducedMessage(sign_in_methods.Message)
   ExportProducedMessage(export.Message)
+  DeleteAccountProducedMessage(delete_account.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -269,8 +282,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    DeleteAccountProducedMessage(message), DeleteAccountPage(page) -> {
+      let #(page, effect) = delete_account.update(page, message)
+
+      #(
+        Model(..model, page: DeleteAccountPage(page)),
+        effect.map(effect, DeleteAccountProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | DeleteAccountProducedMessage(_), _
     | ExportProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
@@ -387,6 +410,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       ExportPage(page) ->
         export.view(page) |> element.map(ExportProducedMessage)
+
+      DeleteAccountPage(page) ->
+        delete_account.view(page) |> element.map(DeleteAccountProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

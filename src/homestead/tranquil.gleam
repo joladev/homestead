@@ -10,6 +10,7 @@ import gleam/time/timestamp.{type Timestamp}
 import gleam/uri.{type Uri}
 import homestead/session.{type Session}
 import lustre/effect.{type Effect}
+import rsvp
 
 pub type Software {
   Tranquil(version: String)
@@ -199,6 +200,14 @@ pub fn server() -> Query(Server) {
       telegram_bot:,
     ))
   })
+}
+
+pub fn language() -> Query(Option(String)) {
+  query(
+    "com.atproto.server.getSession",
+    [],
+    optional_text("preferredLocale", decode.success),
+  )
 }
 
 pub fn login_alerts() -> Query(Bool) {
@@ -662,6 +671,17 @@ pub fn update_contact(
   )
 }
 
+pub fn set_language(code: String) -> Command(Nil) {
+  command(
+    "_account.updateLocale",
+    json.object([#("preferredLocale", json.string(code))]),
+  )
+}
+
+pub fn request_account_deletion() -> Command(Nil) {
+  command("com.atproto.server.requestAccountDelete", json.object([]))
+}
+
 pub fn set_login_alerts(enabled: Bool) -> Command(Nil) {
   command(
     "_account.updateNotificationPrefs",
@@ -772,6 +792,47 @@ pub fn save_repository(
   Nil
 }
 
+pub fn delete_account(
+  session: Session,
+  password: String,
+  code: String,
+  to_message: fn(Result(Nil, Problem)) -> message,
+) -> Effect(message) {
+  rsvp.post(
+    session.origin(session) <> "/xrpc/com.atproto.server.deleteAccount",
+    json.object([
+      #("did", json.string(session.account(session))),
+      #("password", json.string(password)),
+      #("token", json.string(code)),
+    ]),
+    rsvp.expect_any_response(fn(response) {
+      to_message(case response {
+        Ok(response) if response.status == 200 -> {
+          session.forget(session)
+
+          Ok(Nil)
+        }
+        Ok(response) -> Error(refusal(response.body))
+        Error(_) -> Error(Unreachable)
+      })
+    }),
+  )
+}
+
+fn refusal(body: String) -> Problem {
+  let decoder = {
+    use error <- decode.field("error", decode.string)
+    use message <- decode.optional_field("message", "", decode.string)
+
+    decode.success(Refused(error:, message:))
+  }
+
+  case json.parse(body, decoder) {
+    Ok(refused) -> refused
+    Error(_) -> NotUnderstood
+  }
+}
+
 fn accepted(
   session: Session,
   response: Result(#(Int, String), session.Problem),
@@ -781,22 +842,13 @@ fn accepted(
 
     Error(session.SessionEnded) -> ended(session)
 
-    Ok(#(status, body)) -> {
-      let refusal = {
-        use error <- decode.field("error", decode.string)
-        use message <- decode.optional_field("message", "", decode.string)
-
-        decode.success(Refused(error:, message:))
-      }
-
-      case status, json.parse(body, refusal) {
-        401, Ok(Refused(error: "AuthenticationFailed", ..))
-        | 401, Ok(Refused(error: "ExpiredToken", ..))
+    Ok(#(status, body)) ->
+      case status, refusal(body) {
+        401, Refused(error: "AuthenticationFailed", ..)
+        | 401, Refused(error: "ExpiredToken", ..)
         -> ended(session)
-        _, Ok(refused) -> Error(refused)
-        _, Error(_) -> Error(NotUnderstood)
+        _, problem -> Error(problem)
       }
-    }
 
     Error(session.SignInRejected)
     | Error(session.NothingStored)

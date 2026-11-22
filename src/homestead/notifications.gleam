@@ -14,12 +14,26 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+const default_language = "en"
+
+const languages = [
+  #("en", "English"),
+  #("zh", "\u{4E2D}\u{6587}"),
+  #("ja", "\u{65E5}\u{672C}\u{8A9E}"),
+  #("ko", "\u{D55C}\u{AD6D}\u{C5B4}"),
+  #("sv", "Svenska"),
+  #("fi", "Suomi"),
+  #("fr", "Fran\u{00E7}ais"),
+]
+
 pub opaque type Model {
   Model(
     session: Session,
     local_offset: Duration,
     login_alerts: Remote(Bool),
     saving: Saving,
+    language: Remote(Option(String)),
+    saving_language: Saving,
     messages: Remote(List(SentMessage)),
     shown: List(Int),
   )
@@ -38,12 +52,15 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       local_offset: calendar.local_offset(),
       login_alerts: Loading,
       saving: NotSaving,
+      language: Loading,
+      saving_language: NotSaving,
       messages: Loading,
       shown: [],
     ),
     effect.batch([
       tranquil.load(session, tranquil.login_alerts(), ServerReturnedLoginAlerts),
       tranquil.load(session, tranquil.sent_messages(), ServerReturnedMessages),
+      tranquil.load(session, tranquil.language(), ServerReturnedLanguage),
     ]),
   )
 }
@@ -52,7 +69,9 @@ pub fn departure(model: Model) -> Option(Departure) {
   let has_ended_session =
     remote.has_ended_session(model.login_alerts)
     || remote.has_ended_session(model.messages)
+    || remote.has_ended_session(model.language)
     || model.saving == SaveRefused(tranquil.SessionEnded)
+    || model.saving_language == SaveRefused(tranquil.SessionEnded)
 
   case has_ended_session {
     True -> Some(session.Ended)
@@ -66,6 +85,9 @@ pub opaque type Message {
   UserPickedLoginAlerts(enabled: Bool)
   ServerSavedLoginAlerts(enabled: Bool, result: Result(Nil, Problem))
   UserToggledMessage(index: Int)
+  ServerReturnedLanguage(result: Result(Option(String), Problem))
+  UserPickedLanguage(code: String)
+  ServerSavedLanguage(code: String, result: Result(Nil, Problem))
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
@@ -96,6 +118,30 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ServerSavedLoginAlerts(result: Error(problem), ..) -> #(
       Model(..model, saving: SaveRefused(problem:)),
+      effect.none(),
+    )
+
+    ServerReturnedLanguage(result:) -> #(
+      Model(..model, language: remote.from_result(result)),
+      effect.none(),
+    )
+
+    UserPickedLanguage(code:) -> #(
+      Model(..model, saving_language: Saving),
+      tranquil.perform(
+        model.session,
+        tranquil.set_language(code),
+        ServerSavedLanguage(code, _),
+      ),
+    )
+
+    ServerSavedLanguage(code:, result: Ok(Nil)) -> #(
+      Model(..model, language: Loaded(Some(code)), saving_language: NotSaving),
+      effect.none(),
+    )
+
+    ServerSavedLanguage(result: Error(problem), ..) -> #(
+      Model(..model, saving_language: SaveRefused(problem:)),
       effect.none(),
     )
 
@@ -143,6 +189,33 @@ pub fn view(model: Model) -> Element(Message) {
             ],
           ),
           case model.saving {
+            SaveRefused(_) -> layout.problem("The server didn't save that")
+            NotSaving | Saving -> element.none()
+          },
+        ]
+      }),
+    ]),
+    layout.section("language", [
+      layout.block(case model.language {
+        Loading -> []
+        Failed(_) -> [layout.problem("Couldn't load")]
+        Loaded(value: language) -> [
+          layout.row(
+            tone: layout.Plain,
+            name: "Messages",
+            details: [
+              layout.choice(
+                id: "language",
+                label: "Language of messages",
+                options: languages,
+                picked: option.unwrap(language, default_language),
+                is_disabled: model.saving_language == Saving,
+                on_pick: UserPickedLanguage,
+              ),
+            ],
+            actions: [],
+          ),
+          case model.saving_language {
             SaveRefused(_) -> layout.problem("The server didn't save that")
             NotSaving | Saving -> element.none()
           },

@@ -133,6 +133,10 @@ export function server(agent) {
   return new URL(agent.session.info.aud).host;
 }
 
+export function origin(agent) {
+  return new URL(agent.session.info.aud).origin;
+}
+
 async function attempt(run) {
   try {
     return Result$Ok(await run());

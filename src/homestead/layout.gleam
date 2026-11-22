@@ -125,12 +125,13 @@ pub fn name_form(
   ])
 }
 
-pub fn switch(
+pub fn choice(
   id id: String,
   label label: String,
-  is_on is_on: Bool,
+  options options: List(#(String, String)),
+  picked picked: String,
   is_disabled is_disabled: Bool,
-  on_pick on_pick: fn(Bool) -> message,
+  on_pick on_pick: fn(String) -> message,
 ) -> Element(message) {
   html.div(
     [
@@ -138,15 +139,15 @@ pub fn switch(
       attribute.role("group"),
       attribute.aria_label(label),
     ],
-    list.map([#("On", True), #("Off", False)], fn(choice) {
-      let #(text, value) = choice
+    list.map(options, fn(option) {
+      let #(value, text) = option
 
       html.button(
         [
-          attribute.id(switch_choice_id(id, value)),
+          attribute.id(choice_id(id, value)),
           attribute.class("choice"),
           attribute.type_("button"),
-          attribute.aria_pressed(case value == is_on {
+          attribute.aria_pressed(case value == picked {
             True -> "true"
             False -> "false"
           }),
@@ -159,10 +160,35 @@ pub fn switch(
   )
 }
 
+pub fn choice_id(id: String, value: String) -> String {
+  id <> "-" <> value
+}
+
+pub fn switch(
+  id id: String,
+  label label: String,
+  is_on is_on: Bool,
+  is_disabled is_disabled: Bool,
+  on_pick on_pick: fn(Bool) -> message,
+) -> Element(message) {
+  choice(
+    id:,
+    label:,
+    options: [#(switch_value(True), "On"), #(switch_value(False), "Off")],
+    picked: switch_value(is_on),
+    is_disabled:,
+    on_pick: fn(value) { on_pick(value == switch_value(True)) },
+  )
+}
+
 pub fn switch_choice_id(id: String, value: Bool) -> String {
-  case value {
-    True -> id <> "-on"
-    False -> id <> "-off"
+  choice_id(id, switch_value(value))
+}
+
+fn switch_value(is_on: Bool) -> String {
+  case is_on {
+    True -> "on"
+    False -> "off"
   }
 }
 
