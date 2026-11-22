@@ -1174,6 +1174,10 @@ input:disabled {
         grid-row: 2;
     }
 
+    .row > .details > .action {
+        margin-top: var(--space-1);
+    }
+
     .row > .actions {
         grid-column: 2;
         grid-row: 1 / span 2;

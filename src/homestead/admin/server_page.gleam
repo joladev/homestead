@@ -181,6 +181,35 @@ fn view_form(form: Form, submission: Submission) -> Element(Message) {
     #(SecondaryDark, "secondary, dark", page.secondary_dark),
   ]
 
+  let choose_logo =
+    html.label([attribute.class("action file")], [
+      html.text("Choose file"),
+      html.input([
+        attribute.type_("file"),
+        attribute.accept(["image/*"]),
+        attribute.disabled(is_sending),
+        event.on("change", decode.map(browser.file_decoder(), UserChoseLogo)),
+      ]),
+    ])
+  let remove_logo =
+    html.button(
+      [
+        attribute.class("action"),
+        attribute.type_("button"),
+        attribute.disabled(is_sending),
+        event.on_click(UserRemovedLogo),
+      ],
+      [html.text("Remove")],
+    )
+  let #(logo, actions) = case form.logo, page.logo {
+    Chosen(file:), _ -> #([html.text(browser.file_name(file))], [
+      choose_logo,
+      remove_logo,
+    ])
+    Unchanged, Some(_) -> #([html.text("set")], [choose_logo, remove_logo])
+    Removed, _ | Unchanged, None -> #([choose_logo], [])
+  }
+
   html.form([event.on_submit(fn(_) { UserSubmittedForm })], [
     layout.field(
       html.label([attribute.for("server-name")], [html.text("Name")]),
@@ -215,44 +244,7 @@ fn view_form(form: Form, submission: Submission) -> Element(Message) {
         layout.dim("#RRGGBB \u{00B7} empty for the default"),
       ]),
     ),
-    layout.row(
-      tone: layout.Plain,
-      name: "Logo",
-      details: [
-        html.text(case form.logo, page.logo {
-          Chosen(file:), _ -> browser.file_name(file)
-          Removed, _ | Unchanged, None -> "none"
-          Unchanged, Some(_) -> "set"
-        }),
-      ],
-      actions: [
-        html.label([attribute.class("action file")], [
-          html.text("Choose file"),
-          html.input([
-            attribute.type_("file"),
-            attribute.accept(["image/*"]),
-            attribute.disabled(is_sending),
-            event.on(
-              "change",
-              decode.map(browser.file_decoder(), UserChoseLogo),
-            ),
-          ]),
-        ]),
-        case form.logo, page.logo {
-          Chosen(_), _ | Unchanged, Some(_) ->
-            html.button(
-              [
-                attribute.class("action"),
-                attribute.type_("button"),
-                attribute.disabled(is_sending),
-                event.on_click(UserRemovedLogo),
-              ],
-              [html.text("Remove")],
-            )
-          Removed, _ | Unchanged, None -> element.none()
-        },
-      ],
-    ),
+    layout.row(tone: layout.Plain, name: "Logo", details: logo, actions:),
     case submission {
       Refused(problem:) -> layout.problem(describe_refusal(problem))
       Idle | Sending | Saved -> element.none()
