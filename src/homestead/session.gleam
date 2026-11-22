@@ -4,6 +4,7 @@ import gleam/option.{Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri, Uri}
+import homestead/browser.{type File}
 
 pub const callback_path = "/oauth/callback"
 
@@ -109,6 +110,14 @@ pub fn post(
   do_post(session, path, body) |> promise.map(result.map_error(_, problem))
 }
 
+pub fn upload(
+  session: Session,
+  path: String,
+  file: File,
+) -> Promise(Result(#(Int, String), Problem)) {
+  do_upload(session, path, file) |> promise.map(result.map_error(_, problem))
+}
+
 pub fn save(
   session: Session,
   path: String,
@@ -186,4 +195,11 @@ fn do_save(
   session: Session,
   path: String,
   filename: String,
+) -> Promise(Result(#(Int, String), String))
+
+@external(javascript, "./session_ffi.mjs", "upload")
+fn do_upload(
+  session: Session,
+  path: String,
+  file: File,
 ) -> Promise(Result(#(Int, String), String))

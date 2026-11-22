@@ -4,6 +4,7 @@ import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/uri.{type Uri}
+import homestead/admin
 import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
@@ -57,6 +58,7 @@ type Page {
   RepositoryPage(repository.Model)
   DelegationPage(delegation.Model)
   IdentityDocumentPage(identity_document.Model)
+  AdminPage(admin.Model)
   PlaceholderPage
 }
 
@@ -188,7 +190,13 @@ fn open(
       )
     }
 
-    Admin | NotFound(_) -> #(PlaceholderPage, effect.none())
+    Admin -> {
+      let #(page, effect) = admin.init(session)
+
+      #(AdminPage(page), effect.map(effect, AdminProducedMessage))
+    }
+
+    NotFound(_) -> #(PlaceholderPage, effect.none())
   }
 }
 
@@ -206,6 +214,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     RepositoryPage(page) -> repository.departure(page)
     DelegationPage(page) -> delegation.departure(page)
     IdentityDocumentPage(page) -> identity_document.departure(page)
+    AdminPage(page) -> admin.departure(page)
     PlaceholderPage -> None
   }
 
@@ -230,6 +239,7 @@ pub opaque type Message {
   RepositoryProducedMessage(repository.Message)
   DelegationProducedMessage(delegation.Message)
   IdentityDocumentProducedMessage(identity_document.Message)
+  AdminProducedMessage(admin.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -359,8 +369,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    AdminProducedMessage(message), AdminPage(page) -> {
+      let #(page, effect) = admin.update(page, message)
+
+      #(
+        Model(..model, page: AdminPage(page)),
+        effect.map(effect, AdminProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | AdminProducedMessage(_), _
     | IdentityDocumentProducedMessage(_), _
     | DelegationProducedMessage(_), _
     | RepositoryProducedMessage(_), _
@@ -494,6 +514,8 @@ pub fn view(model: Model) -> Element(Message) {
       IdentityDocumentPage(page) ->
         identity_document.view(page)
         |> element.map(IdentityDocumentProducedMessage)
+
+      AdminPage(page) -> admin.view(page) |> element.map(AdminProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

@@ -510,6 +510,37 @@ a.action {
     color: var(--attention);
 }
 
+.action.file {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+}
+
+.action.file input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.action.file:focus-within {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.colours {
+    padding: var(--space-1) 0;
+}
+
+.row .colours input {
+    flex: 1 1 130px;
+    max-width: 180px;
+}
+
 .message-body {
     display: block;
     padding: var(--space-2) 0;
@@ -983,6 +1014,15 @@ input:disabled {
 
     .row:has(> .details > .editor) > label {
         margin-top: 0;
+    }
+
+    .row .colours input {
+        flex: 1 1 40%;
+        max-width: none;
+    }
+
+    .row > .details > .choices {
+        padding-top: var(--space-1);
     }
 
     .row > .details:first-child,

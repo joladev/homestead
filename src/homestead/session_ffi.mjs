@@ -138,6 +138,18 @@ export function post(agent, path, body) {
   });
 }
 
+export function upload(agent, path, file) {
+  return attempt(async () => {
+    const response = await agent.handle(path, {
+      method: "POST",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+    });
+
+    return [response.status, await response.text()];
+  });
+}
+
 export function save(agent, path, filename) {
   return attempt(async () => {
     const response = await agent.handle(path);

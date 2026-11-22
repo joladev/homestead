@@ -9,6 +9,7 @@ import gleam/result
 import gleam/string
 import gleam/time/timestamp.{type Timestamp}
 import gleam/uri.{type Uri}
+import homestead/browser.{type File}
 import homestead/json_text
 import homestead/session.{type Session}
 import lustre/effect.{type Effect}
@@ -170,6 +171,47 @@ pub type LogEntry {
 
 pub type LogPage {
   LogPage(entries: List(LogEntry), total: Int)
+}
+
+pub type ServerTotals {
+  ServerTotals(accounts: Int, repositories: Int, records: Int, media_bytes: Int)
+}
+
+pub type ListedAccount {
+  ListedAccount(
+    did: String,
+    handle: String,
+    email: Option(String),
+    since: Timestamp,
+    is_verified: Bool,
+    is_deactivated: Bool,
+    has_invites: Bool,
+  )
+}
+
+pub type AccountPage {
+  AccountPage(accounts: List(ListedAccount), next: Option(String))
+}
+
+pub type InviteCode {
+  InviteCode(
+    code: String,
+    available: Int,
+    is_disabled: Bool,
+    created: Timestamp,
+    used_by: List(String),
+  )
+}
+
+pub type ServerPage {
+  ServerPage(
+    name: String,
+    primary: String,
+    primary_dark: String,
+    secondary: String,
+    secondary_dark: String,
+    logo: Option(String),
+  )
 }
 
 pub type AuthenticatorSetup {
@@ -359,6 +401,147 @@ pub fn display_name(account: String) -> Query(Option(String)) {
       }
     },
   )
+}
+
+pub fn server_totals() -> Query(ServerTotals) {
+  query("_admin.getServerStats", [], {
+    use accounts <- decode.field("userCount", decode.int)
+    use repositories <- decode.field("repoCount", decode.int)
+    use records <- decode.field("recordCount", decode.int)
+    use media_bytes <- decode.field("blobStorageBytes", decode.int)
+
+    decode.success(ServerTotals(
+      accounts:,
+      repositories:,
+      records:,
+      media_bytes:,
+    ))
+  })
+}
+
+pub fn find_accounts(
+  handle: String,
+  after: Option(String),
+) -> Query(AccountPage) {
+  let page = case handle {
+    "" -> [#("limit", "25")]
+    handle -> [#("limit", "25"), #("handle", handle)]
+  }
+
+  query(
+    "com.atproto.admin.searchAccounts",
+    case after {
+      Some(cursor) -> list.append(page, [#("cursor", cursor)])
+      None -> page
+    },
+    {
+      use accounts <- decode.field(
+        "accounts",
+        decode.list({
+          use did <- decode.field("did", decode.string)
+          use handle <- decode.field("handle", decode.string)
+          use email <- optional_text("email")
+          use since <- decode.field("indexedAt", timestamp_decoder())
+          use verified <- optional_text("emailConfirmedAt")
+          use deactivated <- optional_text("deactivatedAt")
+          use invites_disabled <- decode.optional_field(
+            "invitesDisabled",
+            False,
+            decode.bool,
+          )
+
+          decode.success(ListedAccount(
+            did:,
+            handle:,
+            email:,
+            since:,
+            is_verified: option.is_some(verified),
+            is_deactivated: option.is_some(deactivated),
+            has_invites: !invites_disabled,
+          ))
+        }),
+      )
+      use next <- optional_text("cursor")
+
+      decode.success(AccountPage(accounts:, next:))
+    },
+  )
+}
+
+pub fn invite_codes_required() -> Query(Bool) {
+  query(
+    "com.atproto.server.describeServer",
+    [],
+    decode.optional_field(
+      "inviteCodeRequired",
+      False,
+      decode.bool,
+      decode.success,
+    ),
+  )
+}
+
+pub fn invite_codes() -> Query(List(InviteCode)) {
+  query(
+    "com.atproto.server.getAccountInviteCodes",
+    [],
+    decode.at(
+      ["codes"],
+      decode.list({
+        use code <- decode.field("code", decode.string)
+        use available <- decode.field("available", decode.int)
+        use is_disabled <- decode.field("disabled", decode.bool)
+        use created <- decode.field("createdAt", timestamp_decoder())
+        use used_by <- decode.field(
+          "uses",
+          decode.list({
+            use did <- decode.field("usedBy", decode.string)
+            use handle <- optional_text("usedByHandle")
+
+            decode.success(option.unwrap(handle, did))
+          }),
+        )
+
+        decode.success(InviteCode(
+          code:,
+          available:,
+          is_disabled:,
+          created:,
+          used_by:,
+        ))
+      }),
+    ),
+  )
+}
+
+pub fn server_page() -> Query(ServerPage) {
+  let colour = fn(name: String, next) {
+    use colour <- optional_text(name)
+
+    next(option.unwrap(colour, ""))
+  }
+
+  query("_server.getConfig", [], {
+    use name <- decode.field("serverName", decode.string)
+    use primary <- colour("primaryColor")
+    use primary_dark <- colour("primaryColorDark")
+    use secondary <- colour("secondaryColor")
+    use secondary_dark <- colour("secondaryColorDark")
+    use logo <- optional_text("logoCid")
+
+    decode.success(ServerPage(
+      name:,
+      primary:,
+      primary_dark:,
+      secondary:,
+      secondary_dark:,
+      logo:,
+    ))
+  })
+}
+
+pub fn signal_linked() -> Query(Bool) {
+  query("_admin.getSignalStatus", [], decode.at(["linked"], decode.bool))
 }
 
 pub fn controllers() -> Query(List(Controller)) {
@@ -772,6 +955,64 @@ fn record_body(place: List(#(String, Json)), record: String) -> String {
   <> "}"
 }
 
+pub fn set_account_invites(did: String, enabled: Bool) -> Command(Nil) {
+  command(
+    case enabled {
+      True -> "com.atproto.admin.enableAccountInvites"
+      False -> "com.atproto.admin.disableAccountInvites"
+    },
+    json.object([#("account", json.string(did))]),
+  )
+}
+
+pub fn delete_account_as_admin(did: String) -> Command(Nil) {
+  command(
+    "com.atproto.admin.deleteAccount",
+    json.object([#("did", json.string(did))]),
+  )
+}
+
+pub fn create_invite_code() -> Command(String) {
+  command_returning(
+    "com.atproto.server.createInviteCode",
+    json.object([#("useCount", json.int(1))]),
+    decode.at(["code"], decode.string),
+  )
+}
+
+pub fn disable_invite_code(code: String) -> Command(Nil) {
+  command(
+    "com.atproto.admin.disableInviteCodes",
+    json.object([#("codes", json.array([code], json.string))]),
+  )
+}
+
+pub fn save_server_page(page: ServerPage) -> Command(Nil) {
+  command(
+    "_admin.updateServerConfig",
+    json.object([
+      #("serverName", json.string(page.name)),
+      #("primaryColor", json.string(page.primary)),
+      #("primaryColorDark", json.string(page.primary_dark)),
+      #("secondaryColor", json.string(page.secondary)),
+      #("secondaryColorDark", json.string(page.secondary_dark)),
+      #("logoCid", json.string(option.unwrap(page.logo, ""))),
+    ]),
+  )
+}
+
+pub fn link_signal() -> Command(String) {
+  command_returning(
+    "_admin.linkSignalDevice",
+    json.object([]),
+    decode.at(["qrBase64"], decode.string),
+  )
+}
+
+pub fn unlink_signal() -> Command(Nil) {
+  command("_admin.unlinkSignalDevice", json.object([]))
+}
+
 pub fn add_controller(did: String, access: String) -> Command(Nil) {
   command(
     "_delegation.addController",
@@ -1099,6 +1340,27 @@ pub fn perform(
 
   run(session, command)
   |> promise.tap(fn(outcome) { dispatch(to_message(outcome)) })
+
+  Nil
+}
+
+pub fn upload_media(
+  session: Session,
+  file: File,
+  to_message: fn(Result(String, Problem)) -> message,
+) -> Effect(message) {
+  use dispatch <- effect.from
+
+  session.upload(session, "/xrpc/com.atproto.repo.uploadBlob", file)
+  |> promise.tap(fn(response) {
+    dispatch(to_message(
+      accepted(session, response)
+      |> result.try(fn(answer) {
+        json.parse(answer, decode.at(["blob", "ref", "$link"], decode.string))
+        |> result.replace_error(NotUnderstood)
+      }),
+    ))
+  })
 
   Nil
 }
