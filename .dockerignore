@@ -1,0 +1,5 @@
+.git
+.lustre
+build
+dist
+node_modules

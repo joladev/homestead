@@ -2,6 +2,7 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
+import gleam/string
 import gleam/uri.{Uri}
 import homestead/session.{Client}
 
@@ -30,7 +31,9 @@ pub fn the_hosted_client_file_matches_what_the_app_sends_test() {
   let assert Ok(app) = uri.parse("https://homestead.at/")
   let Client(id:, redirect_uri:) = session.client(app)
   let assert Ok(#(file_id, file_redirects, file_scope)) =
-    json.parse(read("assets/oauth-client-metadata.json"), {
+    read("docker/oauth-client-metadata.json")
+    |> string.replace(each: "{{env \"HOMESTEAD_HOST\"}}", with: "homestead.at")
+    |> json.parse({
       use id <- decode.field("client_id", decode.string)
       use redirects <- decode.field("redirect_uris", decode.list(decode.string))
       use scope <- decode.field("scope", decode.string)

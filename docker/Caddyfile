@@ -1,0 +1,16 @@
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	handle /oauth-client-metadata.json {
+		templates {
+			mime application/json
+		}
+		file_server
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

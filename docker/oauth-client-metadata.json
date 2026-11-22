@@ -1,8 +1,8 @@
 {
-  "client_id": "https://homestead.at/oauth-client-metadata.json",
+  "client_id": "https://{{env "HOMESTEAD_HOST"}}/oauth-client-metadata.json",
   "client_name": "Homestead",
-  "client_uri": "https://homestead.at",
-  "redirect_uris": ["https://homestead.at/oauth/callback"],
+  "client_uri": "https://{{env "HOMESTEAD_HOST"}}",
+  "redirect_uris": ["https://{{env "HOMESTEAD_HOST"}}/oauth/callback"],
   "scope": "atproto repo:*?action=create repo:*?action=update repo:*?action=delete blob:*/* identity:* account:*?action=manage",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
