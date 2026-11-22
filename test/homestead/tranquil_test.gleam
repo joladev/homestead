@@ -2,8 +2,8 @@ import gleam/json
 import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
-  Account, ActiveSession, ChannelUsername, ContactPreferences, OtherSoftware,
-  Passkey, RememberedApp, SentMessage, Server, Tranquil,
+  Account, ActiveSession, ChannelUsername, ContactPreferences, LinkedAccount,
+  OtherSoftware, Passkey, RememberedApp, SentMessage, Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -144,6 +144,25 @@ pub fn a_passkey_that_was_never_used_has_no_last_use_test() {
         name: None,
         created: timestamp.from_unix_seconds(1_795_287_876),
         last_used: None,
+      ),
+    ])
+}
+
+pub fn a_linked_account_names_its_provider_test() {
+  let body =
+    "{\"accounts\":[{\"id\":\"7f1c\",\"provider\":\"github\",
+      \"provider_name\":\"GitHub\",\"provider_username\":\"noor-h\",
+      \"provider_email\":null,\"created_at\":\"2026-11-21T19:04:36+00:00\",
+      \"last_login_at\":null}]}"
+
+  assert tranquil.parse(tranquil.linked_accounts(), body)
+    == Ok([
+      LinkedAccount(
+        id: "7f1c",
+        provider: "GitHub",
+        username: Some("noor-h"),
+        email: None,
+        linked: timestamp.from_unix_seconds(1_795_287_876),
       ),
     ])
 }

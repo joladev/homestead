@@ -132,7 +132,15 @@ pub fn view(model: Model) -> Element(Message) {
                 "Message me when someone signs in with only the password",
               ),
             ],
-            actions: [view_switch(enabled, model.saving == Saving)],
+            actions: [
+              layout.switch(
+                id: "login-alerts",
+                label: "Password sign-in alert",
+                is_on: enabled,
+                is_disabled: model.saving == Saving,
+                on_pick: UserPickedLoginAlerts,
+              ),
+            ],
           ),
           case model.saving {
             SaveRefused(_) -> layout.problem("The server didn't save that")
@@ -153,30 +161,6 @@ pub fn view(model: Model) -> Element(Message) {
       }),
     ]),
   ])
-}
-
-fn view_switch(enabled: Bool, is_saving: Bool) -> Element(Message) {
-  html.div(
-    [
-      attribute.class("choices"),
-      attribute.role("radiogroup"),
-      attribute.aria_label("Password sign-in alert"),
-    ],
-    list.map([#("On", True), #("Off", False)], fn(choice) {
-      let #(label, value) = choice
-
-      html.label([], [
-        html.input([
-          attribute.type_("radio"),
-          attribute.name("login-alerts"),
-          attribute.checked(value == enabled),
-          attribute.disabled(is_saving),
-          event.on_click(UserPickedLoginAlerts(value)),
-        ]),
-        html.span([], [html.text(label)]),
-      ])
-    }),
-  )
 }
 
 fn view_message(

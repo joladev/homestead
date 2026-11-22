@@ -2,6 +2,9 @@ import gleam/option.{type Option, None, Some}
 import homestead/layout
 import homestead/session.{type Departure, type Session}
 import homestead/sign_in_methods/authenticator
+import homestead/sign_in_methods/devices
+import homestead/sign_in_methods/linked_accounts
+import homestead/sign_in_methods/older_apps
 import homestead/sign_in_methods/passkeys
 import homestead/sign_in_methods/password
 import lustre/effect.{type Effect}
@@ -12,6 +15,9 @@ pub opaque type Model {
     passkeys: passkeys.Model,
     authenticator: authenticator.Model,
     password: password.Model,
+    linked_accounts: linked_accounts.Model,
+    older_apps: older_apps.Model,
+    devices: devices.Model,
   )
 }
 
@@ -19,13 +25,26 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   let #(passkeys, passkeys_effect) = passkeys.init(session)
   let #(authenticator, authenticator_effect) = authenticator.init(session)
   let #(password, password_effect) = password.init(session)
+  let #(linked_accounts, linked_accounts_effect) = linked_accounts.init(session)
+  let #(older_apps, older_apps_effect) = older_apps.init(session)
+  let #(devices, devices_effect) = devices.init(session)
 
   #(
-    Model(passkeys:, authenticator:, password:),
+    Model(
+      passkeys:,
+      authenticator:,
+      password:,
+      linked_accounts:,
+      older_apps:,
+      devices:,
+    ),
     effect.batch([
       effect.map(passkeys_effect, PasskeysProducedMessage),
       effect.map(authenticator_effect, AuthenticatorProducedMessage),
       effect.map(password_effect, PasswordProducedMessage),
+      effect.map(linked_accounts_effect, LinkedAccountsProducedMessage),
+      effect.map(older_apps_effect, OlderAppsProducedMessage),
+      effect.map(devices_effect, DevicesProducedMessage),
     ]),
   )
 }
@@ -35,6 +54,9 @@ pub fn departure(model: Model) -> Option(Departure) {
     passkeys.has_ended_session(model.passkeys)
     || authenticator.has_ended_session(model.authenticator)
     || password.has_ended_session(model.password)
+    || linked_accounts.has_ended_session(model.linked_accounts)
+    || older_apps.has_ended_session(model.older_apps)
+    || devices.has_ended_session(model.devices)
 
   case has_ended_session {
     True -> Some(session.Ended)
@@ -46,6 +68,9 @@ pub opaque type Message {
   PasskeysProducedMessage(message: passkeys.Message)
   AuthenticatorProducedMessage(message: authenticator.Message)
   PasswordProducedMessage(message: password.Message)
+  LinkedAccountsProducedMessage(message: linked_accounts.Message)
+  OlderAppsProducedMessage(message: older_apps.Message)
+  DevicesProducedMessage(message: devices.Message)
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
@@ -71,6 +96,31 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
       #(Model(..model, password:), effect.map(effect, PasswordProducedMessage))
     }
+
+    LinkedAccountsProducedMessage(message:) -> {
+      let #(linked_accounts, effect) =
+        linked_accounts.update(model.linked_accounts, message)
+
+      #(
+        Model(..model, linked_accounts:),
+        effect.map(effect, LinkedAccountsProducedMessage),
+      )
+    }
+
+    OlderAppsProducedMessage(message:) -> {
+      let #(older_apps, effect) = older_apps.update(model.older_apps, message)
+
+      #(
+        Model(..model, older_apps:),
+        effect.map(effect, OlderAppsProducedMessage),
+      )
+    }
+
+    DevicesProducedMessage(message:) -> {
+      let #(devices, effect) = devices.update(model.devices, message)
+
+      #(Model(..model, devices:), effect.map(effect, DevicesProducedMessage))
+    }
   }
 }
 
@@ -87,6 +137,26 @@ pub fn view(model: Model) -> Element(Message) {
         password.view(model.password, passkeys.has_any(model.passkeys)),
         PasswordProducedMessage,
       ),
+    ]),
+    case linked_accounts.is_offered(model.linked_accounts) {
+      True ->
+        layout.section("linked-accounts", [
+          map(
+            linked_accounts.view(model.linked_accounts),
+            LinkedAccountsProducedMessage,
+          ),
+        ])
+      False -> element.none()
+    },
+    case older_apps.is_offered(model.older_apps) {
+      True ->
+        layout.section("older-apps", [
+          map(older_apps.view(model.older_apps), OlderAppsProducedMessage),
+        ])
+      False -> element.none()
+    },
+    layout.section("remembered-devices", [
+      map(devices.view(model.devices), DevicesProducedMessage),
     ]),
   ])
 }

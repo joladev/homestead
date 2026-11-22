@@ -282,38 +282,14 @@ pub fn view(model: Model) -> List(Element(Message)) {
 fn view_passkey(passkey: Passkey, model: Model) -> Element(Message) {
   case model.action {
     Renaming(passkey: renaming, name:, is_saving:) if renaming == passkey ->
-      html.form([event.on_submit(fn(_) { UserSubmittedName })], [
-        html.div([attribute.class("row")], [
-          html.label([attribute.for(name_input_id)], [html.text("Name")]),
-          html.div([attribute.class("details")], [
-            html.input([
-              attribute.id(name_input_id),
-              attribute.type_("text"),
-              attribute.value(name),
-              attribute.autocomplete("off"),
-              attribute.disabled(is_saving),
-              event.on_input(UserTypedName),
-            ]),
-          ]),
-          html.div([attribute.class("actions")], [
-            html.button(
-              [
-                attribute.class("action"),
-                attribute.type_("button"),
-                event.on_click(UserCancelledRename(passkey)),
-              ],
-              [html.text("Cancel")],
-            ),
-            html.button(
-              [
-                attribute.class("action primary"),
-                attribute.disabled(is_saving || string.trim(name) == ""),
-              ],
-              [html.text("Save")],
-            ),
-          ]),
-        ]),
-      ])
+      layout.name_form(
+        id: name_input_id,
+        name:,
+        is_saving:,
+        on_input: UserTypedName,
+        on_submit: UserSubmittedName,
+        on_cancel: UserCancelledRename(passkey),
+      )
 
     ConfirmingDelete(passkey: confirming) if confirming == passkey ->
       confirmation.view(

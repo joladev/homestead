@@ -90,6 +90,30 @@ pub type Passkey {
   )
 }
 
+pub type LinkedAccount {
+  LinkedAccount(
+    id: String,
+    provider: String,
+    username: Option(String),
+    email: Option(String),
+    linked: Timestamp,
+  )
+}
+
+pub type OlderApps {
+  OlderApps(allowed: Bool, has_second_step: Bool)
+}
+
+pub type RememberedDevice {
+  RememberedDevice(
+    id: String,
+    name: Option(String),
+    user_agent: Option(String),
+    remembered_until: Timestamp,
+    last_seen: Timestamp,
+  )
+}
+
 pub type AuthenticatorSetup {
   AuthenticatorSetup(secret: String, qr_image: String)
 }
@@ -307,6 +331,71 @@ pub fn has_password() -> Query(Bool) {
   )
 }
 
+pub fn linked_account_providers() -> Query(List(String)) {
+  Query(
+    path: "/oauth/sso/providers",
+    decoder: decode.at(
+      ["providers"],
+      decode.list(decode.at(["name"], decode.string)),
+    ),
+  )
+}
+
+pub fn linked_accounts() -> Query(List(LinkedAccount)) {
+  Query(
+    path: "/oauth/sso/linked",
+    decoder: decode.at(
+      ["accounts"],
+      decode.list({
+        use id <- decode.field("id", decode.string)
+        use provider <- decode.field("provider_name", decode.string)
+        use username <- optional_text("provider_username")
+        use email <- optional_text("provider_email")
+        use linked <- decode.field("created_at", timestamp_decoder())
+
+        decode.success(LinkedAccount(id:, provider:, username:, email:, linked:))
+      }),
+    ),
+  )
+}
+
+pub fn older_apps() -> Query(OlderApps) {
+  query("_account.getLegacyLoginPreference", [], {
+    use allowed <- decode.field("allowLegacyLogin", decode.bool)
+    use has_second_step <- decode.field("hasMfa", decode.bool)
+
+    decode.success(OlderApps(allowed:, has_second_step:))
+  })
+}
+
+pub fn remembered_devices() -> Query(List(RememberedDevice)) {
+  query(
+    "_account.listTrustedDevices",
+    [],
+    decode.at(
+      ["devices"],
+      decode.list({
+        use id <- decode.field("id", decode.string)
+        use name <- optional_text("friendlyName")
+        use user_agent <- optional_text("userAgent")
+        use remembered_until <- decode.field(
+          "trustedUntil",
+          timestamp_decoder(),
+        )
+        use last_seen <- decode.field("lastSeenAt", timestamp_decoder())
+
+        decode.success(RememberedDevice(
+          id:,
+          name:,
+          user_agent:,
+          remembered_until:,
+          last_seen:,
+        ))
+      }),
+    ),
+  )
+}
+
 pub fn sign_in_again_methods() -> Query(List(String)) {
   query(
     "_account.getReauthStatus",
@@ -464,6 +553,38 @@ pub fn set_password(new: String) -> Command(Nil) {
 
 pub fn remove_password() -> Command(Nil) {
   command("_account.removePassword", json.object([]))
+}
+
+pub fn unlink_account(id: String) -> Command(Nil) {
+  Command(
+    path: "/oauth/sso/unlink",
+    body: json.object([#("id", json.string(id))]),
+    read: fn(_) { Ok(Nil) },
+  )
+}
+
+pub fn allow_older_apps(allowed: Bool) -> Command(Nil) {
+  command(
+    "_account.updateLegacyLoginPreference",
+    json.object([#("allowLegacyLogin", json.bool(allowed))]),
+  )
+}
+
+pub fn rename_device(id: String, name: String) -> Command(Nil) {
+  command(
+    "_account.updateTrustedDevice",
+    json.object([
+      #("deviceId", json.string(id)),
+      #("friendlyName", json.string(name)),
+    ]),
+  )
+}
+
+pub fn forget_device(id: String) -> Command(Nil) {
+  command(
+    "_account.revokeTrustedDevice",
+    json.object([#("deviceId", json.string(id))]),
+  )
 }
 
 pub fn sign_in_again_with_password(password: String) -> Command(Nil) {

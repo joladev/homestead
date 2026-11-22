@@ -495,7 +495,8 @@ h3 {
     cursor: pointer;
 }
 
-.choices span {
+.choices span,
+.choice {
     display: flex;
     align-items: center;
     min-height: var(--control);
@@ -504,13 +505,27 @@ h3 {
     font-size: 16px;
 }
 
-.choices input:checked + span {
+.choice {
+    background: none;
+    border-radius: 0;
+    color: inherit;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.choice:disabled {
+    cursor: default;
+}
+
+.choices input:checked + span,
+.choice[aria-pressed="true"] {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--ground);
 }
 
-.choices input:focus-visible + span {
+.choices input:focus-visible + span,
+.choice:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
@@ -915,7 +930,8 @@ input:disabled {
         min-height: 44px;
     }
 
-    .choices span {
+    .choices span,
+    .choice {
         min-height: 44px;
     }
 

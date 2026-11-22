@@ -1,6 +1,9 @@
+import gleam/list
+import gleam/string
 import lustre/attribute.{type Attribute}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/event
 
 pub type Tone {
   Plain
@@ -78,6 +81,89 @@ pub fn field(
     label,
     html.div([attribute.class("details")], [control]),
   ])
+}
+
+pub fn name_form(
+  id id: String,
+  name name: String,
+  is_saving is_saving: Bool,
+  on_input on_input: fn(String) -> message,
+  on_submit on_submit: message,
+  on_cancel on_cancel: message,
+) -> Element(message) {
+  html.form([event.on_submit(fn(_) { on_submit })], [
+    html.div([attribute.class("row")], [
+      html.label([attribute.for(id)], [html.text("Name")]),
+      html.div([attribute.class("details")], [
+        html.input([
+          attribute.id(id),
+          attribute.type_("text"),
+          attribute.value(name),
+          attribute.autocomplete("off"),
+          attribute.disabled(is_saving),
+          event.on_input(on_input),
+        ]),
+      ]),
+      html.div([attribute.class("actions")], [
+        html.button(
+          [
+            attribute.class("action"),
+            attribute.type_("button"),
+            event.on_click(on_cancel),
+          ],
+          [html.text("Cancel")],
+        ),
+        html.button(
+          [
+            attribute.class("action primary"),
+            attribute.disabled(is_saving || string.trim(name) == ""),
+          ],
+          [html.text("Save")],
+        ),
+      ]),
+    ]),
+  ])
+}
+
+pub fn switch(
+  id id: String,
+  label label: String,
+  is_on is_on: Bool,
+  is_disabled is_disabled: Bool,
+  on_pick on_pick: fn(Bool) -> message,
+) -> Element(message) {
+  html.div(
+    [
+      attribute.class("choices"),
+      attribute.role("group"),
+      attribute.aria_label(label),
+    ],
+    list.map([#("On", True), #("Off", False)], fn(choice) {
+      let #(text, value) = choice
+
+      html.button(
+        [
+          attribute.id(switch_choice_id(id, value)),
+          attribute.class("choice"),
+          attribute.type_("button"),
+          attribute.aria_pressed(case value == is_on {
+            True -> "true"
+            False -> "false"
+          }),
+          attribute.disabled(is_disabled),
+          event.on_click(on_pick(value)),
+        ],
+        [html.text(text)],
+      )
+    }),
+  )
+}
+
+pub fn switch_choice_id(id: String, value: Bool) -> String {
+  case value {
+    True -> id <> "-on"
+    False -> id <> "-off"
+  }
 }
 
 pub fn problem(text: String) -> Element(message) {
