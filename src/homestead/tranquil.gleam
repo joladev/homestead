@@ -1,3 +1,4 @@
+import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/javascript/promise.{type Promise}
@@ -115,6 +116,20 @@ pub type RememberedDevice {
   )
 }
 
+pub type RepoRecord {
+  RepoRecord(
+    key: String,
+    address: String,
+    content_id: String,
+    json: String,
+    preview: String,
+  )
+}
+
+pub type RecordPage {
+  RecordPage(records: List(RepoRecord), next: Option(String))
+}
+
 pub type AuthenticatorSetup {
   AuthenticatorSetup(secret: String, qr_image: String)
 }
@@ -142,7 +157,11 @@ pub type AppPassword {
 }
 
 pub opaque type Command(answer) {
-  Command(path: String, body: Json, read: fn(String) -> Result(answer, Problem))
+  Command(
+    path: String,
+    body: String,
+    read: fn(String) -> Result(answer, Problem),
+  )
 }
 
 pub fn account() -> Query(Account) {
@@ -299,6 +318,68 @@ pub fn display_name(account: String) -> Query(Option(String)) {
     },
   )
 }
+
+pub fn collections(account: String) -> Query(List(String)) {
+  query(
+    "com.atproto.repo.describeRepo",
+    [#("repo", account)],
+    decode.at(["collections"], decode.list(decode.string)),
+  )
+}
+
+pub fn records(
+  account: String,
+  collection: String,
+  after: Option(String),
+) -> Query(RecordPage) {
+  let page = [#("repo", account), #("collection", collection), #("limit", "50")]
+
+  query(
+    "com.atproto.repo.listRecords",
+    case after {
+      Some(cursor) -> list.append(page, [#("cursor", cursor)])
+      None -> page
+    },
+    {
+      use records <- decode.field("records", decode.list(record_decoder()))
+      use next <- optional_text("cursor")
+
+      decode.success(RecordPage(records:, next:))
+    },
+  )
+}
+
+pub fn record(
+  account: String,
+  collection: String,
+  key: String,
+) -> Query(RepoRecord) {
+  query(
+    "com.atproto.repo.getRecord",
+    [#("repo", account), #("collection", collection), #("rkey", key)],
+    record_decoder(),
+  )
+}
+
+fn record_decoder() -> Decoder(RepoRecord) {
+  use address <- decode.field("uri", decode.string)
+  use content_id <- decode.field("cid", decode.string)
+  use value <- decode.field("value", decode.dynamic)
+
+  decode.success(RepoRecord(
+    key: string.split(address, "/") |> list.last |> result.unwrap(""),
+    address:,
+    content_id:,
+    json: pretty(value),
+    preview: compact(value),
+  ))
+}
+
+@external(javascript, "./tranquil_ffi.mjs", "pretty")
+fn pretty(value: Dynamic) -> String
+
+@external(javascript, "./tranquil_ffi.mjs", "compact")
+fn compact(value: Dynamic) -> String
 
 pub fn passkeys() -> Query(List(Passkey)) {
   query(
@@ -485,6 +566,80 @@ pub fn create_app_password(
   )
 }
 
+pub fn save_record(
+  account: String,
+  collection: String,
+  key: String,
+  record: String,
+) -> Command(Nil) {
+  Command(
+    path: "/xrpc/com.atproto.repo.putRecord",
+    body: record_body(
+      [
+        #("repo", json.string(account)),
+        #("collection", json.string(collection)),
+        #("rkey", json.string(key)),
+      ],
+      record,
+    ),
+    read: fn(_) { Ok(Nil) },
+  )
+}
+
+pub fn create_record(
+  account: String,
+  collection: String,
+  key: Option(String),
+  record: String,
+) -> Command(String) {
+  let place = [
+    #("repo", json.string(account)),
+    #("collection", json.string(collection)),
+  ]
+
+  Command(
+    path: "/xrpc/com.atproto.repo.createRecord",
+    body: record_body(
+      case key {
+        Some(key) -> list.append(place, [#("rkey", json.string(key))])
+        None -> place
+      },
+      record,
+    ),
+    read: fn(answer) {
+      json.parse(answer, decode.at(["uri"], decode.string))
+      |> result.replace_error(NotUnderstood)
+      |> result.try(fn(address) {
+        string.split(address, "/")
+        |> list.last
+        |> result.replace_error(NotUnderstood)
+      })
+    },
+  )
+}
+
+pub fn delete_record(
+  account: String,
+  collection: String,
+  key: String,
+) -> Command(Nil) {
+  command(
+    "com.atproto.repo.deleteRecord",
+    json.object([
+      #("repo", json.string(account)),
+      #("collection", json.string(collection)),
+      #("rkey", json.string(key)),
+    ]),
+  )
+}
+
+fn record_body(place: List(#(String, Json)), record: String) -> String {
+  string.drop_end(json.to_string(json.object(place)), 1)
+  <> ",\"record\":"
+  <> record
+  <> "}"
+}
+
 pub fn rename_passkey(id: String, name: String) -> Command(Nil) {
   command(
     "com.atproto.server.updatePasskey",
@@ -567,7 +722,7 @@ pub fn remove_password() -> Command(Nil) {
 pub fn unlink_account(id: String) -> Command(Nil) {
   Command(
     path: "/oauth/sso/unlink",
-    body: json.object([#("id", json.string(id))]),
+    body: json.to_string(json.object([#("id", json.string(id))])),
     read: fn(_) { Ok(Nil) },
   )
 }
@@ -740,7 +895,7 @@ pub fn run(
   session: Session,
   command: Command(answer),
 ) -> Promise(Result(answer, Problem)) {
-  let body = json.to_string(command.body)
+  let body = command.body
   use response <- promise.map(session.post(session, command.path, body))
   use answer <- result.try(accepted(session, response))
 
@@ -881,13 +1036,15 @@ fn command_returning(
   body: Json,
   decoder: Decoder(answer),
 ) -> Command(answer) {
-  Command(path: "/xrpc/" <> name, body:, read: fn(answer) {
+  Command(path: "/xrpc/" <> name, body: json.to_string(body), read: fn(answer) {
     json.parse(answer, decoder) |> result.replace_error(NotUnderstood)
   })
 }
 
 fn command(name: String, body: Json) -> Command(Nil) {
-  Command(path: "/xrpc/" <> name, body:, read: fn(_) { Ok(Nil) })
+  Command(path: "/xrpc/" <> name, body: json.to_string(body), read: fn(_) {
+    Ok(Nil)
+  })
 }
 
 fn query(

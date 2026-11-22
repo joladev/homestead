@@ -1,3 +1,6 @@
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/uri.{type Uri}
 import lustre/attribute.{type Attribute}
 
@@ -26,7 +29,14 @@ pub type AccessPage {
 
 pub type DataPage {
   Export
-  Repository
+  Repository(location: RepositoryLocation)
+}
+
+pub type RepositoryLocation {
+  Collections
+  Records(collection: String)
+  Record(collection: String, key: String)
+  NewRecord(collection: String)
 }
 
 pub type AdvancedPage {
@@ -57,7 +67,13 @@ pub const sections = [
       Access(AppPasswords),
     ],
   ),
-  Section(label: "Data", first: Data(Export), rest: [Data(Repository)]),
+  Section(
+    label: "Data",
+    first: Data(Export),
+    rest: [
+      Data(Repository(Collections)),
+    ],
+  ),
   Section(
     label: "Advanced",
     first: Advanced(Delegation),
@@ -82,7 +98,20 @@ pub fn from_uri(uri: Uri) -> Route {
     ["access", "apps"] -> Access(ConnectedApps)
     ["access", "app-passwords"] -> Access(AppPasswords)
     ["data", "export"] -> Data(Export)
-    ["data", "repository"] -> Data(Repository)
+    ["data", "repository"] ->
+      Data(
+        Repository(case query(uri, "collection"), query(uri, "key") {
+          Some(collection), Some(key) -> Record(collection:, key:)
+          Some(collection), None -> Records(collection:)
+          None, _ -> Collections
+        }),
+      )
+    ["data", "repository", "new"] ->
+      Data(
+        Repository(
+          NewRecord(collection: option.unwrap(query(uri, "collection"), "")),
+        ),
+      )
     ["advanced", "delegation"] -> Advanced(Delegation)
     ["advanced", "identity"] -> Advanced(IdentityDocument)
     ["admin"] -> Admin
@@ -101,7 +130,16 @@ pub fn to_path(route: Route) -> String {
     Access(ConnectedApps) -> "/access/apps"
     Access(AppPasswords) -> "/access/app-passwords"
     Data(Export) -> "/data/export"
-    Data(Repository) -> "/data/repository"
+    Data(Repository(Collections)) -> "/data/repository"
+    Data(Repository(Records(collection:))) ->
+      "/data/repository?" <> uri.query_to_string([#("collection", collection)])
+    Data(Repository(Record(collection:, key:))) ->
+      "/data/repository?"
+      <> uri.query_to_string([#("collection", collection), #("key", key)])
+    Data(Repository(NewRecord(collection: ""))) -> "/data/repository/new"
+    Data(Repository(NewRecord(collection:))) ->
+      "/data/repository/new?"
+      <> uri.query_to_string([#("collection", collection)])
     Advanced(Delegation) -> "/advanced/delegation"
     Advanced(IdentityDocument) -> "/advanced/identity"
     Admin -> "/admin"
@@ -120,11 +158,31 @@ pub fn label(route: Route) -> String {
     Access(ConnectedApps) -> "Connected apps"
     Access(AppPasswords) -> "App passwords"
     Data(Export) -> "Export"
-    Data(Repository) -> "Repository"
+    Data(Repository(_)) -> "Repository"
     Advanced(Delegation) -> "Delegation"
     Advanced(IdentityDocument) -> "Identity document"
     Admin -> "Admin"
     NotFound(_) -> "Page not found"
+  }
+}
+
+fn query(uri: Uri, name: String) -> Option(String) {
+  option.to_result(uri.query, Nil)
+  |> result.try(uri.parse_query)
+  |> result.try(list.key_find(_, name))
+  |> option.from_result
+}
+
+pub fn page(route: Route) -> Route {
+  case route {
+    Data(Repository(_)) -> Data(Repository(Collections))
+    Overview
+    | Account(_)
+    | Access(_)
+    | Data(Export)
+    | Advanced(_)
+    | Admin
+    | NotFound(_) -> route
   }
 }
 

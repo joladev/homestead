@@ -3,7 +3,8 @@ import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, ChannelUsername, ContactPreferences, LinkedAccount,
-  OtherSoftware, Passkey, RememberedApp, SentMessage, Server, Tranquil,
+  OtherSoftware, Passkey, RecordPage, RememberedApp, RepoRecord, SentMessage,
+  Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -165,4 +166,27 @@ pub fn a_linked_account_names_its_provider_test() {
         linked: timestamp.from_unix_seconds(1_795_287_876),
       ),
     ])
+}
+
+pub fn a_listed_record_takes_its_key_from_its_address_test() {
+  let body =
+    "{\"records\":[{\"uri\":\"at://did:plc:abc/app.bsky.feed.post/3m5x7c2k4s2a\",
+      \"cid\":\"bafyrei\",\"value\":{\"text\":\"Hello\"}}],\"cursor\":\"3m5x\"}"
+
+  assert tranquil.parse(
+      tranquil.records("did:plc:abc", "app.bsky.feed.post", None),
+      body,
+    )
+    == Ok(RecordPage(
+      records: [
+        RepoRecord(
+          key: "3m5x7c2k4s2a",
+          address: "at://did:plc:abc/app.bsky.feed.post/3m5x7c2k4s2a",
+          content_id: "bafyrei",
+          json: "{\n  \"text\": \"Hello\"\n}",
+          preview: "{\"text\":\"Hello\"}",
+        ),
+      ],
+      next: Some("3m5x"),
+    ))
 }

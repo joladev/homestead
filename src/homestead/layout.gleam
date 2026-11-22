@@ -34,6 +34,19 @@ pub fn section(
   ])
 }
 
+pub fn path_section(
+  path: List(Element(message)),
+  content: List(Element(message)),
+) -> Element(message) {
+  html.section([], [
+    html.h1(
+      [attribute.class("prompt path")],
+      list.intersperse(path, html.text(" / ")),
+    ),
+    ..content
+  ])
+}
+
 pub fn block(rows: List(Element(message))) -> Element(message) {
   html.div([attribute.class("block")], rows)
 }
@@ -48,6 +61,23 @@ pub fn row(
     html.strong([], [html.text(name)]),
     html.span([attribute.class("details")], details),
     html.div([attribute.class("actions")], actions),
+  ])
+}
+
+pub fn linked_row(
+  to to: Attribute(message),
+  name name: String,
+  details details: List(Element(message)),
+) -> Element(message) {
+  html.div([attribute.class("row")], [
+    html.a([attribute.class("name"), to], [html.text(name)]),
+    html.span([attribute.class("details")], details),
+  ])
+}
+
+pub fn wide_row(content: List(Element(message))) -> Element(message) {
+  html.div([attribute.class("row wide")], [
+    html.span([attribute.class("details")], content),
   ])
 }
 

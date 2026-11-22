@@ -12,6 +12,7 @@ import homestead/notifications
 import homestead/overview
 import homestead/profile
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/repository
 import homestead/route.{
   type Route, type Section, Access, Account, Admin, Advanced, AppPasswords,
   ConnectedApps, Data, NotFound, Overview, Section, Sessions, SignInMethods,
@@ -49,6 +50,7 @@ type Page {
   SignInMethodsPage(sign_in_methods.Model)
   ExportPage(export.Model)
   DeleteAccountPage(delete_account.Model)
+  RepositoryPage(repository.Model)
   PlaceholderPage
 }
 
@@ -150,10 +152,13 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       #(ExportPage(page), effect.map(effect, ExportProducedMessage))
     }
 
-    Data(route.Repository) | Advanced(_) | Admin | NotFound(_) -> #(
-      PlaceholderPage,
-      effect.none(),
-    )
+    Data(route.Repository(location:)) -> {
+      let #(page, effect) = repository.init(session, location)
+
+      #(RepositoryPage(page), effect.map(effect, RepositoryProducedMessage))
+    }
+
+    Advanced(_) | Admin | NotFound(_) -> #(PlaceholderPage, effect.none())
   }
 }
 
@@ -168,6 +173,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     SignInMethodsPage(page) -> sign_in_methods.departure(page)
     ExportPage(page) -> export.departure(page)
     DeleteAccountPage(page) -> delete_account.departure(page)
+    RepositoryPage(page) -> repository.departure(page)
     PlaceholderPage -> None
   }
 
@@ -189,6 +195,7 @@ pub opaque type Message {
   SignInMethodsProducedMessage(sign_in_methods.Message)
   ExportProducedMessage(export.Message)
   DeleteAccountProducedMessage(delete_account.Message)
+  RepositoryProducedMessage(repository.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -291,8 +298,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    RepositoryProducedMessage(message), RepositoryPage(page) -> {
+      let #(page, effect) = repository.update(page, message)
+
+      #(
+        Model(..model, page: RepositoryPage(page)),
+        effect.map(effect, RepositoryProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | RepositoryProducedMessage(_), _
     | DeleteAccountProducedMessage(_), _
     | ExportProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
@@ -378,7 +395,7 @@ const sign_out_item = "account-menu-sign-out"
 pub fn view(model: Model) -> Element(Message) {
   let current_section =
     list.find(route.sections, fn(section) {
-      list.contains(route.section_pages(section), model.route)
+      list.contains(route.section_pages(section), route.page(model.route))
     })
 
   element.fragment([
@@ -413,6 +430,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       DeleteAccountPage(page) ->
         delete_account.view(page) |> element.map(DeleteAccountProducedMessage)
+
+      RepositoryPage(page) ->
+        repository.view(page) |> element.map(RepositoryProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))
@@ -510,7 +530,7 @@ fn view_menu(
     html.a(
       [
         route.href(page),
-        aria_current("page", page == model.route),
+        aria_current("page", page == route.page(model.route)),
         ..attributes
       ],
       [html.text(route.label(page))],
@@ -679,7 +699,10 @@ fn view_page_links(
         [attribute.class("page-links"), attribute.aria_label(label <> " pages")],
         list.map(route.section_pages(section), fn(page) {
           html.a(
-            [route.href(page), aria_current("page", page == current_route)],
+            [
+              route.href(page),
+              aria_current("page", page == route.page(current_route)),
+            ],
             [html.text(route.label(page))],
           )
         }),

@@ -420,6 +420,70 @@ h3 {
     padding: var(--space-1) 0;
 }
 
+.prompt.path a {
+    color: inherit;
+}
+
+.row > .name {
+    grid-column: 1;
+    font-family: var(--font-code);
+    overflow-wrap: anywhere;
+}
+
+.row.wide > .details {
+    grid-column: 1 / span 2;
+    font-family: var(--font-code);
+}
+
+.preview {
+    display: block;
+    overflow: hidden;
+    color: var(--text-dim);
+    font-family: var(--font-code);
+    font-size: 15px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.row code.long {
+    font-size: 15px;
+    overflow-wrap: anywhere;
+}
+
+a.action {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    text-decoration: none;
+}
+
+.editor {
+    display: block;
+    width: 100%;
+    min-height: 320px;
+    box-sizing: border-box;
+    margin: var(--space-1) 0;
+    padding: 12px;
+    background: var(--ground);
+    border: 1px solid var(--line-strong);
+    border-radius: 0;
+    color: var(--text-strong);
+    font-family: var(--font-code);
+    font-size: 15px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.row:has(> .details > .editor) > label {
+    align-self: start;
+    margin-top: var(--space-3);
+}
+
+.editor:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 .message-body {
     display: block;
     padding: var(--space-2) 0;
@@ -889,6 +953,10 @@ input:disabled {
     .row > .actions {
         grid-column: 2;
         grid-row: 1 / span 2;
+    }
+
+    .row:has(> .details > .editor) > label {
+        margin-top: 0;
     }
 
     .row > .details:first-child,

@@ -39,12 +39,17 @@ pub fn view(
           [
             attribute.id(cancel_id),
             attribute.class("action"),
+            attribute.type_("button"),
             event.on_click(on_cancel),
           ],
           [html.text("Cancel")],
         ),
         html.button(
-          [attribute.class("action accept"), event.on_click(on_accept)],
+          [
+            attribute.class("action accept"),
+            attribute.type_("button"),
+            event.on_click(on_accept),
+          ],
           [html.text(accept)],
         ),
       ]),
