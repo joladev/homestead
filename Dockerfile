@@ -12,6 +12,7 @@ RUN gleam deps download
 
 COPY . .
 RUN gleam run -m lustre/dev build --minify
+RUN docker/hash-assets.sh dist
 
 FROM caddy:2.11-alpine
 
