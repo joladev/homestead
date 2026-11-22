@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
+import homestead/delegation
 import homestead/delete_account
 import homestead/export
 import homestead/notifications
@@ -51,6 +52,7 @@ type Page {
   ExportPage(export.Model)
   DeleteAccountPage(delete_account.Model)
   RepositoryPage(repository.Model)
+  DelegationPage(delegation.Model)
   PlaceholderPage
 }
 
@@ -158,7 +160,16 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       #(RepositoryPage(page), effect.map(effect, RepositoryProducedMessage))
     }
 
-    Advanced(_) | Admin | NotFound(_) -> #(PlaceholderPage, effect.none())
+    Advanced(route.Delegation) -> {
+      let #(page, effect) = delegation.init(session)
+
+      #(DelegationPage(page), effect.map(effect, DelegationProducedMessage))
+    }
+
+    Advanced(route.IdentityDocument) | Admin | NotFound(_) -> #(
+      PlaceholderPage,
+      effect.none(),
+    )
   }
 }
 
@@ -174,6 +185,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     ExportPage(page) -> export.departure(page)
     DeleteAccountPage(page) -> delete_account.departure(page)
     RepositoryPage(page) -> repository.departure(page)
+    DelegationPage(page) -> delegation.departure(page)
     PlaceholderPage -> None
   }
 
@@ -196,6 +208,7 @@ pub opaque type Message {
   ExportProducedMessage(export.Message)
   DeleteAccountProducedMessage(delete_account.Message)
   RepositoryProducedMessage(repository.Message)
+  DelegationProducedMessage(delegation.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -307,8 +320,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    DelegationProducedMessage(message), DelegationPage(page) -> {
+      let #(page, effect) = delegation.update(page, message)
+
+      #(
+        Model(..model, page: DelegationPage(page)),
+        effect.map(effect, DelegationProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | DelegationProducedMessage(_), _
     | RepositoryProducedMessage(_), _
     | DeleteAccountProducedMessage(_), _
     | ExportProducedMessage(_), _
@@ -433,6 +456,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       RepositoryPage(page) ->
         repository.view(page) |> element.map(RepositoryProducedMessage)
+
+      DelegationPage(page) ->
+        delegation.view(page) |> element.map(DelegationProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

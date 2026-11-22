@@ -1,6 +1,7 @@
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
+import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
 import gleam/list
@@ -128,6 +129,47 @@ pub type RepoRecord {
 
 pub type RecordPage {
   RecordPage(records: List(RepoRecord), next: Option(String))
+}
+
+pub type Controller {
+  Controller(
+    did: String,
+    handle: Option(String),
+    access: String,
+    since: Timestamp,
+    is_active: Bool,
+    is_local: Bool,
+  )
+}
+
+pub type ControlledAccount {
+  ControlledAccount(
+    did: String,
+    handle: Option(String),
+    access: String,
+    since: Timestamp,
+  )
+}
+
+pub type AccessLevel {
+  AccessLevel(name: String, label: String, scopes: String)
+}
+
+pub type FoundController {
+  FoundController(
+    did: String,
+    handle: Option(String),
+    server: Option(String),
+    is_local: Bool,
+  )
+}
+
+pub type LogEntry {
+  LogEntry(id: String, actor: String, action: String, at: Timestamp)
+}
+
+pub type LogPage {
+  LogPage(entries: List(LogEntry), total: Int)
 }
 
 pub type AuthenticatorSetup {
@@ -315,6 +357,102 @@ pub fn display_name(account: String) -> Query(Option(String)) {
         "" -> decode.success(None)
         name -> decode.success(Some(name))
       }
+    },
+  )
+}
+
+pub fn controllers() -> Query(List(Controller)) {
+  query(
+    "_delegation.listControllers",
+    [],
+    decode.at(
+      ["controllers"],
+      decode.list({
+        use did <- decode.field("did", decode.string)
+        use handle <- optional_text("handle")
+        use access <- decode.field("grantedScopes", decode.string)
+        use since <- decode.field("grantedAt", timestamp_decoder())
+        use is_active <- decode.field("isActive", decode.bool)
+        use is_local <- decode.field("isLocal", decode.bool)
+
+        decode.success(Controller(
+          did:,
+          handle:,
+          access:,
+          since:,
+          is_active:,
+          is_local:,
+        ))
+      }),
+    ),
+  )
+}
+
+pub fn controlled_accounts() -> Query(List(ControlledAccount)) {
+  query(
+    "_delegation.listControlledAccounts",
+    [],
+    decode.at(
+      ["accounts"],
+      decode.list({
+        use did <- decode.field("did", decode.string)
+        use handle <- optional_text("handle")
+        use access <- decode.field("grantedScopes", decode.string)
+        use since <- decode.field("grantedAt", timestamp_decoder())
+
+        decode.success(ControlledAccount(did:, handle:, access:, since:))
+      }),
+    ),
+  )
+}
+
+pub fn access_levels() -> Query(List(AccessLevel)) {
+  query(
+    "_delegation.getScopePresets",
+    [],
+    decode.at(
+      ["presets"],
+      decode.list({
+        use name <- decode.field("name", decode.string)
+        use label <- decode.field("label", decode.string)
+        use scopes <- decode.field("scopes", decode.string)
+
+        decode.success(AccessLevel(name:, label:, scopes:))
+      }),
+    ),
+  )
+}
+
+pub fn find_controller(identifier: String) -> Query(FoundController) {
+  query("_delegation.resolveController", [#("identifier", identifier)], {
+    use did <- decode.field("did", decode.string)
+    use handle <- optional_text("handle")
+    use server <- optional_text("pdsUrl")
+    use is_local <- decode.field("isLocal", decode.bool)
+
+    decode.success(FoundController(did:, handle:, server:, is_local:))
+  })
+}
+
+pub fn delegation_log(offset: Int) -> Query(LogPage) {
+  query(
+    "_delegation.getAuditLog",
+    [#("limit", "20"), #("offset", int.to_string(offset))],
+    {
+      use entries <- decode.field(
+        "entries",
+        decode.list({
+          use id <- decode.field("id", decode.string)
+          use actor <- decode.field("actorDid", decode.string)
+          use action <- decode.field("actionType", decode.string)
+          use at <- decode.field("createdAt", timestamp_decoder())
+
+          decode.success(LogEntry(id:, actor:, action:, at:))
+        }),
+      )
+      use total <- decode.field("total", decode.int)
+
+      decode.success(LogPage(entries:, total:))
     },
   )
 }
@@ -638,6 +776,49 @@ fn record_body(place: List(#(String, Json)), record: String) -> String {
   <> ",\"record\":"
   <> record
   <> "}"
+}
+
+pub fn add_controller(did: String, access: String) -> Command(Nil) {
+  command(
+    "_delegation.addController",
+    json.object([
+      #("controller_did", json.string(did)),
+      #("granted_scopes", json.string(access)),
+    ]),
+  )
+}
+
+pub fn remove_controller(did: String) -> Command(Nil) {
+  command(
+    "_delegation.removeController",
+    json.object([#("controller_did", json.string(did))]),
+  )
+}
+
+pub fn create_controlled_account(
+  handle: String,
+  email: Option(String),
+  access: String,
+) -> Command(Nil) {
+  let account = [
+    #("handle", json.string(handle)),
+    #("controllerScopes", json.string(access)),
+  ]
+
+  command(
+    "_delegation.createDelegatedAccount",
+    json.object(case email {
+      Some(email) -> [#("email", json.string(email)), ..account]
+      None -> account
+    }),
+  )
+}
+
+pub fn delete_controlled_account(did: String) -> Command(Nil) {
+  command(
+    "_delegation.deleteControlledAccount",
+    json.object([#("did", json.string(did))]),
+  )
 }
 
 pub fn rename_passkey(id: String, name: String) -> Command(Nil) {

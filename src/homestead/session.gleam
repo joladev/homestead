@@ -69,6 +69,16 @@ pub fn begin(account: Did) -> Promise(Result(Uri, Problem)) {
   uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
 }
 
+pub fn act_as(
+  session: Session,
+  account: String,
+) -> Promise(Result(Uri, Problem)) {
+  use login <- promise.map(do_act_as(session, account, scope()))
+  use login <- result.try(result.map_error(login, problem))
+
+  uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
+}
+
 pub fn complete(answer: String) -> Promise(Result(Session, Problem)) {
   do_complete(answer) |> promise.map(result.map_error(_, problem))
 }
@@ -141,6 +151,13 @@ fn do_configure(
 
 @external(javascript, "./session_ffi.mjs", "begin")
 fn do_begin(account: String, scope: String) -> Promise(Result(String, String))
+
+@external(javascript, "./session_ffi.mjs", "actAs")
+fn do_act_as(
+  session: Session,
+  account: String,
+  scope: String,
+) -> Promise(Result(String, String))
 
 @external(javascript, "./session_ffi.mjs", "complete")
 fn do_complete(answer: String) -> Promise(Result(Session, String))

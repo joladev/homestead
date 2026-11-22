@@ -130,8 +130,8 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         None -> open_dashboard(model, #(dashboard, effect))
 
         Some(session.SignedOut) -> #(
-          Model(..model, state: SignedOut(sign_in:)),
-          show_overview(),
+          Model(..model, state: Restoring(location: overview())),
+          effect.batch([show_overview(), restore_session()]),
         )
 
         Some(session.Ended) -> #(
@@ -173,6 +173,10 @@ fn open_dashboard(
     Model(..model, state: SignedIn(dashboard:)),
     effect.map(effect, DashboardProducedMessage),
   )
+}
+
+fn overview() -> Uri {
+  Uri(..uri.empty, path: route.to_path(Overview))
 }
 
 fn show_overview() -> Effect(Message) {

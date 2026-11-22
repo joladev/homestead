@@ -17,6 +17,7 @@ import {
 import { Result$Error, Result$Ok } from "../gleam.mjs";
 
 const STORAGE_PERSIST_MILLISECONDS = 200;
+const CURRENT_ACCOUNT = "homestead:current-account";
 
 export function configure(clientId, redirectUri, directory) {
   configureOAuth({
@@ -53,12 +54,46 @@ export function complete(answer) {
       new URLSearchParams(answer),
     );
 
+    localStorage.setItem(CURRENT_ACCOUNT, session.info.sub);
+
     return new OAuthUserAgent(session);
   });
 }
 
+export function actAs(agent, did, scope) {
+  return attempt(async () => {
+    const login = await createAuthorizationUrl({
+      target: { type: "account", identifier: did },
+      scope,
+    });
+    const response = await agent.handle("/oauth/delegation/auth-token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        request_uri: login.searchParams.get("request_uri"),
+        delegated_did: did,
+      }),
+    });
+    const answer = await response.json();
+
+    if (!response.ok || !answer.redirect_uri) {
+      const refusal = new Error(answer.error);
+      refusal.name = "ActAsRefused";
+      throw refusal;
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, STORAGE_PERSIST_MILLISECONDS),
+    );
+
+    return new URL(answer.redirect_uri, agent.session.info.aud).href;
+  });
+}
+
 export function storedAccount() {
-  const [did] = listStoredSessions();
+  const stored = listStoredSessions();
+  const current = localStorage.getItem(CURRENT_ACCOUNT);
+  const did = stored.includes(current) ? current : stored[0];
 
   return did === undefined ? Result$Error(undefined) : Result$Ok(did);
 }
@@ -67,11 +102,15 @@ export function restore(did) {
   return attempt(async () => {
     const session = await getSession(did, { allowStale: true });
 
+    localStorage.setItem(CURRENT_ACCOUNT, did);
+
     return new OAuthUserAgent(session);
   });
 }
 
 export async function end(agent) {
+  localStorage.removeItem(CURRENT_ACCOUNT);
+
   try {
     await agent.signOut();
   } catch {

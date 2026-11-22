@@ -3,8 +3,8 @@ import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, ChannelUsername, ContactPreferences, LinkedAccount,
-  OtherSoftware, Passkey, RecordPage, RememberedApp, RepoRecord, SentMessage,
-  Server, Tranquil,
+  LogEntry, LogPage, OtherSoftware, Passkey, RecordPage, RememberedApp,
+  RepoRecord, SentMessage, Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -188,5 +188,26 @@ pub fn a_listed_record_takes_its_key_from_its_address_test() {
         ),
       ],
       next: Some("3m5x"),
+    ))
+}
+
+pub fn a_delegation_log_page_carries_its_total_test() {
+  let body =
+    "{\"entries\":[{\"id\":\"e1\",\"delegatedDid\":\"did:plc:shop\",
+      \"actorDid\":\"did:plc:noor\",\"controllerDid\":null,
+      \"actionType\":\"TokenIssued\",\"actionDetails\":null,
+      \"createdAt\":\"2026-11-21T19:04:36Z\"}],\"total\":23}"
+
+  assert tranquil.parse(tranquil.delegation_log(0), body)
+    == Ok(LogPage(
+      entries: [
+        LogEntry(
+          id: "e1",
+          actor: "did:plc:noor",
+          action: "TokenIssued",
+          at: timestamp.from_unix_seconds(1_795_287_876),
+        ),
+      ],
+      total: 23,
     ))
 }
