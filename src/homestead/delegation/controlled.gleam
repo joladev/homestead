@@ -259,19 +259,18 @@ pub fn describe_refusal(problem: Problem) -> String {
   }
 }
 
-pub fn view(
+pub fn view_actions(
   model: Model,
-  levels: Remote(List(AccessLevel)),
   has_controllers: Bool,
 ) -> List(Element(Message)) {
-  let actions = case model.action, has_controllers {
-    Creating(..), _ | _, True -> []
-    Resting, False
-    | ConfirmingDelete(_), False
-    | Deleting, False
-    | StartingToActAs, False
-    | ActAsRefused, False
-    | Refused(_), False
+  case model.accounts, model.action, has_controllers {
+    Loading, _, _ | Failed(_), _, _ | _, Creating(..), _ | _, _, True -> []
+    Loaded(_), Resting, False
+    | Loaded(_), ConfirmingDelete(_), False
+    | Loaded(_), Deleting, False
+    | Loaded(_), StartingToActAs, False
+    | Loaded(_), ActAsRefused, False
+    | Loaded(_), Refused(_), False
     -> [
       html.button(
         [
@@ -283,7 +282,13 @@ pub fn view(
       ),
     ]
   }
+}
 
+pub fn view(
+  model: Model,
+  levels: Remote(List(AccessLevel)),
+  has_controllers: Bool,
+) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
@@ -294,7 +299,7 @@ pub fn view(
             layout.listing(
               empty: "No controlled accounts",
               rows: list.map(accounts, view_account(_, model, levels)),
-              actions:,
+              actions: [],
             )
         },
         case model.action, has_controllers {

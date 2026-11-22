@@ -175,6 +175,23 @@ fn can_be_used(code: InviteCode) -> Bool {
   !code.is_disabled && code.available > 0
 }
 
+pub fn view_actions(model: Model) -> List(Element(Message)) {
+  case model.codes {
+    Loaded(_) -> [
+      html.button(
+        [
+          attribute.id(new_button_id),
+          attribute.class("action"),
+          attribute.disabled(model.action == Creating),
+          event.on_click(UserClickedNew),
+        ],
+        [html.text("New code")],
+      ),
+    ]
+    Loading | Failed(_) -> []
+  }
+}
+
 pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
@@ -186,17 +203,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
             layout.listing(
               empty: "No invite codes",
               rows: list.map(codes, view_code(_, model)),
-              actions: [
-                html.button(
-                  [
-                    attribute.id(new_button_id),
-                    attribute.class("action"),
-                    attribute.disabled(model.action == Creating),
-                    event.on_click(UserClickedNew),
-                  ],
-                  [html.text("New code")],
-                ),
-              ],
+              actions: [],
             )
         },
         case model.action {

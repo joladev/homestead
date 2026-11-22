@@ -1,5 +1,6 @@
 import gleam/float
 import gleam/int
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import homestead/admin/accounts
@@ -154,9 +155,17 @@ pub fn view(model: Model) -> Element(Message) {
     ]),
     case invite_codes.is_offered(model.invite_codes) {
       True ->
-        layout.section("invite-codes", [
-          map(invite_codes.view(model.invite_codes), InviteCodesProducedMessage),
-        ])
+        layout.section_with_actions(
+          "invite-codes",
+          invite_codes.view_actions(model.invite_codes)
+            |> list.map(element.map(_, InviteCodesProducedMessage)),
+          [
+            map(
+              invite_codes.view(model.invite_codes),
+              InviteCodesProducedMessage,
+            ),
+          ],
+        )
       False -> element.none()
     },
     layout.section("signal", [

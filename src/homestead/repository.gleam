@@ -454,14 +454,18 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     case model.place {
       AtCollections(collections:) ->
-        layout.path_section([html.text("repository")], [
-          view_collections(collections),
-        ])
+        layout.path_section_with_actions(
+          [html.text("repository")],
+          [view_new_link("")],
+          [view_collections(collections)],
+        )
 
       AtRecords(collection:, records:, next:, more:) ->
-        layout.path_section([top, html.text(collection)], [
-          view_records(collection, records, next, more),
-        ])
+        layout.path_section_with_actions(
+          [top, html.text(collection)],
+          [view_new_link(collection)],
+          [view_records(collection, records, next, more)],
+        )
 
       AtRecord(collection:, key:, record:, text:, action:, copied:) ->
         layout.path_section(
@@ -503,7 +507,7 @@ fn view_collections(collections: Remote(List(String))) -> Element(Message) {
             rows: list.map(collections, fn(collection) {
               layout.wide_row([link(Records(collection:), collection)])
             }),
-            actions: [view_new_link("")],
+            actions: [],
           )
       },
     ]),
@@ -537,21 +541,19 @@ fn view_records(
                 ],
               )
             }),
-            actions: [
-              case next {
-                Some(after) ->
-                  html.button(
-                    [
-                      attribute.class("action"),
-                      attribute.disabled(more == LoadingMore),
-                      event.on_click(UserClickedMore(after)),
-                    ],
-                    [html.text("More")],
-                  )
-                None -> element.none()
-              },
-              view_new_link(collection),
-            ],
+            actions: case next {
+              Some(after) -> [
+                html.button(
+                  [
+                    attribute.class("action"),
+                    attribute.disabled(more == LoadingMore),
+                    event.on_click(UserClickedMore(after)),
+                  ],
+                  [html.text("More")],
+                ),
+              ]
+              None -> []
+            },
           )
       },
       case more {

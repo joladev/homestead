@@ -19,8 +19,16 @@ pub fn title_section(
   prompt: String,
   content: List(Element(message)),
 ) -> Element(message) {
+  title_section_with_actions(prompt, [], content)
+}
+
+pub fn title_section_with_actions(
+  prompt: String,
+  actions: List(Element(message)),
+  content: List(Element(message)),
+) -> Element(message) {
   html.section([], [
-    html.h1([attribute.class("prompt")], [html.text(prompt)]),
+    heading(html.h1([attribute.class("prompt")], [html.text(prompt)]), actions),
     ..content
   ])
 }
@@ -29,8 +37,16 @@ pub fn section(
   prompt: String,
   content: List(Element(message)),
 ) -> Element(message) {
+  section_with_actions(prompt, [], content)
+}
+
+pub fn section_with_actions(
+  prompt: String,
+  actions: List(Element(message)),
+  content: List(Element(message)),
+) -> Element(message) {
   html.section([], [
-    html.h2([attribute.class("prompt")], [html.text(prompt)]),
+    heading(html.h2([attribute.class("prompt")], [html.text(prompt)]), actions),
     ..content
   ])
 }
@@ -39,13 +55,38 @@ pub fn path_section(
   path: List(Element(message)),
   content: List(Element(message)),
 ) -> Element(message) {
+  path_section_with_actions(path, [], content)
+}
+
+pub fn path_section_with_actions(
+  path: List(Element(message)),
+  actions: List(Element(message)),
+  content: List(Element(message)),
+) -> Element(message) {
   html.section([], [
-    html.h1(
-      [attribute.class("prompt path")],
-      list.intersperse(path, html.text(" / ")),
+    heading(
+      html.h1(
+        [attribute.class("prompt path")],
+        list.intersperse(path, html.text(" / ")),
+      ),
+      actions,
     ),
     ..content
   ])
+}
+
+fn heading(
+  title: Element(message),
+  actions: List(Element(message)),
+) -> Element(message) {
+  case actions {
+    [] -> title
+    [_, ..] ->
+      html.div([attribute.class("heading")], [
+        title,
+        html.div([attribute.class("actions")], actions),
+      ])
+  }
 }
 
 pub fn block(rows: List(Element(message))) -> Element(message) {

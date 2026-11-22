@@ -91,26 +91,42 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
 pub fn view(model: Model) -> Element(Message) {
   layout.page([
-    layout.title_section("controllers", [
-      map(
-        controllers.view(
-          model.controllers,
-          model.levels,
-          controlled.has_any(model.controlled),
+    layout.title_section_with_actions(
+      "controllers",
+      controllers.view_actions(
+        model.controllers,
+        controlled.has_any(model.controlled),
+      )
+        |> list.map(element.map(_, ControllersProducedMessage)),
+      [
+        map(
+          controllers.view(
+            model.controllers,
+            model.levels,
+            controlled.has_any(model.controlled),
+          ),
+          ControllersProducedMessage,
         ),
-        ControllersProducedMessage,
-      ),
-    ]),
-    layout.section("controlled-accounts", [
-      map(
-        controlled.view(
-          model.controlled,
-          model.levels,
-          controllers.has_any(model.controllers),
+      ],
+    ),
+    layout.section_with_actions(
+      "controlled-accounts",
+      controlled.view_actions(
+        model.controlled,
+        controllers.has_any(model.controllers),
+      )
+        |> list.map(element.map(_, ControlledProducedMessage)),
+      [
+        map(
+          controlled.view(
+            model.controlled,
+            model.levels,
+            controllers.has_any(model.controllers),
+          ),
+          ControlledProducedMessage,
         ),
-        ControlledProducedMessage,
-      ),
-    ]),
+      ],
+    ),
     layout.section("log", [
       map(
         log.view(

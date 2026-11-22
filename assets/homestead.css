@@ -239,6 +239,30 @@ h3 {
     color: var(--text-strong);
 }
 
+.heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+}
+
+.heading > .prompt {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.heading > .prompt,
+.page section > .prompt:has(+ .block) {
+    padding: calc((var(--control) - 1.5em) / 2) 0;
+}
+
+.heading > .actions {
+    display: flex;
+    gap: var(--space-1);
+    margin-left: auto;
+}
+
 .prompt::before {
     content: "$ ";
     color: var(--accent);
