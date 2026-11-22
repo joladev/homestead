@@ -1,8 +1,9 @@
 import at/did.{type Did}
+import at/handle
 import gleam/dict
 import gleam/option.{None, Some}
 import gleam/time/timestamp.{type Timestamp}
-import homestead/label.{Active, Expired, Label, Page, Removed}
+import homestead/label.{Active, Expired, Label, Page, Removed, Service}
 
 fn at(text: String) -> Timestamp {
   let assert Ok(time) = timestamp.parse_rfc3339(text)
@@ -74,14 +75,29 @@ pub fn a_removal_closes_the_label_it_removes_test() {
     ]
 }
 
-pub fn a_labeler_names_its_labels_test() {
+pub fn a_labeler_service_carries_its_handle_image_and_label_names_test() {
   let body =
-    "{\"value\":{\"policies\":{\"labelValueDefinitions\":[
-      {\"identifier\":\"us-gov-account\",\"locales\":[
-        {\"lang\":\"en\",\"name\":\"United States Government Account\"}]}]}}}"
+    "{\"views\":[
+      {\"creator\":{\"did\":\"did:plc:ar7c4by46qjdydhdevvrndac\",
+        \"handle\":\"moderation.bsky.app\",\"avatar\":\"https://cdn.test/a\"},
+       \"policies\":{\"labelValueDefinitions\":[
+        {\"identifier\":\"us-gov-account\",\"locales\":[
+          {\"lang\":\"en\",\"name\":\"United States Government Account\"}]}]}},
+      {\"creator\":{\"did\":\"did:plc:ar7c4by46qjdydhdevvrndac\",
+        \"handle\":\"moderation.bsky.app\"},
+       \"policies\":{\"labelValues\":[\"spam\"]}}]}"
+  let assert Ok(handle) = handle.from_string("moderation.bsky.app")
 
-  assert label.read_names(body)
-    == Ok(
-      dict.from_list([#("us-gov-account", "United States Government Account")]),
-    )
+  assert label.read_services(body)
+    == Ok([
+      Service(
+        labeler: labeler(),
+        handle:,
+        image: Some("https://cdn.test/a"),
+        names: dict.from_list([
+          #("us-gov-account", "United States Government Account"),
+        ]),
+      ),
+      Service(labeler: labeler(), handle:, image: None, names: dict.new()),
+    ])
 }

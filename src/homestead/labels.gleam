@@ -7,6 +7,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp.{type Timestamp}
@@ -19,12 +20,15 @@ import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import rsvp
 
-const patience_milliseconds = 5000
+const relay_patience_milliseconds = 5000
+
+const labeler_patience_milliseconds = 2500
 
 pub opaque type Model {
   Model(
@@ -32,16 +36,24 @@ pub opaque type Model {
     directory: Uri,
     local_offset: Duration,
     opened: Timestamp,
-    relay: Remote(Nil),
+    relay: Relay,
     labelers: Dict(Did, Labeler),
   )
+}
+
+type Relay {
+  Asking(subjects: Int)
+  Answered
+  Unanswered
 }
 
 type Labeler {
   Labeler(
     handle: Option(Handle),
+    image: Option(String),
     names: Dict(String, String),
-    labels: Remote(Found),
+    active: List(Event),
+    own: Remote(Found),
   )
 }
 
@@ -52,7 +64,7 @@ type Found {
 pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
   let account = session.account(session)
   let opened = timestamp.system_time()
-  let assert [subject, ..rest] = label.subjects(account)
+  let subjects = label.subjects(account)
 
   #(
     Model(
@@ -60,23 +72,24 @@ pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
       directory:,
       local_offset: calendar.local_offset(),
       opened:,
-      relay: Loading,
+      relay: Asking(subjects: list.length(subjects)),
       labelers: dict.new(),
     ),
     effect.batch([
-      ask_relay(subject, None, rest),
-      browser.after(patience_milliseconds, RelayTookTooLong(opened)),
+      browser.after(relay_patience_milliseconds, RelayTookTooLong(opened)),
+      ..list.map(subjects, ask_relay(_, None))
     ]),
   )
 }
 
 pub opaque type Message {
-  RelayReturnedLabelers(
-    subject: String,
-    rest: List(String),
+  RelayReturnedLabelers(subject: String, result: Result(label.Page, Problem))
+  RelayTookTooLong(opened: Timestamp)
+  AppViewReturnedLabels(
+    labelers: List(Did),
     result: Result(label.Page, Problem),
   )
-  RelayTookTooLong(opened: Timestamp)
+  AppViewReturnedServices(result: Result(List(label.Service), Problem))
   DirectoryReturnedLabeler(labeler: Did, result: Result(DidDocument, Problem))
   LabelerReturnedLabels(
     labeler: Did,
@@ -87,55 +100,90 @@ pub opaque type Message {
     result: Result(label.Page, Problem),
   )
   LabelersTookTooLong(opened: Timestamp, labelers: List(Did))
-  LabelerReturnedNames(labeler: Did, result: Result(Dict(String, String), Nil))
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    RelayReturnedLabelers(subject:, rest:, result: Ok(page)) -> {
+    RelayReturnedLabelers(subject:, result: Ok(page)) -> {
       let #(model, meeting) = meet_labelers(model, page.events)
 
-      case page.next, rest {
+      case page.next, model.relay {
         Some(after), _ -> #(
           model,
-          effect.batch([meeting, ask_relay(subject, Some(after), rest)]),
+          effect.batch([meeting, ask_relay(subject, Some(after))]),
         )
-        None, [subject, ..rest] -> #(
-          model,
-          effect.batch([meeting, ask_relay(subject, None, rest)]),
+        None, Asking(subjects: 1) -> #(Model(..model, relay: Answered), meeting)
+        None, Asking(subjects:) -> #(
+          Model(..model, relay: Asking(subjects: subjects - 1)),
+          meeting,
         )
-        None, [] -> #(Model(..model, relay: Loaded(Nil)), meeting)
+        None, Answered | None, Unanswered -> #(model, meeting)
       }
     }
 
-    RelayReturnedLabelers(result: Error(problem), ..) -> #(
-      Model(..model, relay: Failed(problem:)),
+    RelayReturnedLabelers(result: Error(_), ..) -> #(
+      Model(..model, relay: Unanswered),
       effect.none(),
     )
 
     RelayTookTooLong(opened:) if opened == model.opened -> #(
-      Model(..model, relay: give_up(model.relay)),
+      Model(..model, relay: case model.relay {
+        Asking(_) -> Unanswered
+        Answered | Unanswered -> model.relay
+      }),
+      effect.none(),
+    )
+
+    AppViewReturnedLabels(labelers:, result: Ok(page)) -> #(
+      list.fold(page.events, model, fn(model, event) {
+        change(model, event.labeler, fn(known) {
+          Labeler(..known, active: [event, ..known.active])
+        })
+      }),
+      case page.next {
+        Some(after) -> ask_appview(model, labelers, Some(after))
+        None -> effect.none()
+      },
+    )
+
+    AppViewReturnedServices(result: Ok(services)) -> #(
+      list.fold(services, model, fn(model, service) {
+        change(model, service.labeler, fn(known) {
+          Labeler(
+            ..known,
+            handle: Some(service.handle),
+            image: service.image,
+            names: service.names,
+          )
+        })
+      }),
       effect.none(),
     )
 
     DirectoryReturnedLabeler(labeler:, result: Ok(document)) -> {
+      let assert [subject, ..rest] = label.subjects(model.account)
       let model =
         change(model, labeler, fn(known) {
           Labeler(
             ..known,
-            handle: did_document.also_known_as(document) |> option.from_result,
+            handle: option.or(
+              known.handle,
+              did_document.also_known_as(document) |> option.from_result,
+            ),
           )
         })
-      let assert [subject, ..rest] = label.subjects(model.account)
-      let found = Found(events: [], unreadable: 0)
 
       case label.server(document) {
         Ok(server) -> #(
           model,
-          effect.batch([
-            ask_labeler(labeler, server, subject, None, rest, found),
-            ask_names(labeler, document),
-          ]),
+          ask_labeler(
+            labeler,
+            server,
+            subject,
+            None,
+            rest,
+            Found(events: [], unreadable: 0),
+          ),
         )
         Error(Nil) -> #(
           fail(model, labeler, tranquil.NotUnderstood),
@@ -177,7 +225,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
         None, [] -> #(
           change(model, labeler, fn(known) {
-            Labeler(..known, labels: Loaded(found))
+            Labeler(..known, own: Loaded(found))
           }),
           effect.none(),
         )
@@ -192,20 +240,19 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     LabelersTookTooLong(opened:, labelers:) if opened == model.opened -> #(
       list.fold(labelers, model, fn(model, labeler) {
         change(model, labeler, fn(known) {
-          Labeler(..known, labels: give_up(known.labels))
+          case known.own {
+            Loading -> Labeler(..known, own: Failed(tranquil.Unreachable))
+            Loaded(_) | Failed(_) -> known
+          }
         })
       }),
       effect.none(),
     )
 
-    LabelerReturnedNames(labeler:, result: Ok(names)) -> #(
-      change(model, labeler, fn(known) { Labeler(..known, names:) }),
-      effect.none(),
-    )
-
     RelayTookTooLong(_)
     | LabelersTookTooLong(..)
-    | LabelerReturnedNames(result: Error(Nil), ..) -> #(model, effect.none())
+    | AppViewReturnedLabels(result: Error(_), ..)
+    | AppViewReturnedServices(result: Error(_)) -> #(model, effect.none())
   }
 }
 
@@ -217,44 +264,62 @@ fn meet_labelers(
     list.map(events, fn(event) { event.labeler })
     |> list.unique
     |> list.filter(fn(labeler) { !dict.has_key(model.labelers, labeler) })
-
-  #(
+  let model =
     Model(
       ..model,
       labelers: list.fold(unknown, model.labelers, fn(labelers, labeler) {
         dict.insert(
           labelers,
           labeler,
-          Labeler(handle: None, names: dict.new(), labels: Loading),
+          Labeler(
+            handle: None,
+            image: None,
+            names: dict.new(),
+            active: [],
+            own: Loading,
+          ),
         )
       }),
-    ),
-    case unknown {
-      [] -> effect.none()
-      [_, ..] ->
-        effect.batch([
-          browser.after(
-            patience_milliseconds,
-            LabelersTookTooLong(model.opened, unknown),
-          ),
-          ..list.map(unknown, fn(labeler) {
-            rsvp.send(
-              identity.document_request(model.directory, labeler),
-              rsvp.expect_ok_response(fn(response) {
-                DirectoryReturnedLabeler(
-                  labeler,
-                  result.replace_error(response, tranquil.Unreachable)
-                    |> result.try(fn(response) {
-                      json.parse(response.body, did_document.decoder())
-                      |> result.replace_error(tranquil.NotUnderstood)
-                    }),
-                )
+    )
+
+  #(model, case unknown {
+    [] -> effect.none()
+    [_, ..] ->
+      effect.batch([
+        ask_appview(model, unknown, None),
+        rsvp.send(
+          label.services_request(unknown),
+          rsvp.expect_ok_response(fn(response) {
+            AppViewReturnedServices(
+              result.replace_error(response, tranquil.Unreachable)
+              |> result.try(fn(response) {
+                label.read_services(response.body)
+                |> result.replace_error(tranquil.NotUnderstood)
               }),
             )
-          })
-        ])
-    },
-  )
+          }),
+        ),
+        browser.after(
+          labeler_patience_milliseconds,
+          LabelersTookTooLong(model.opened, unknown),
+        ),
+        ..list.map(unknown, fn(labeler) {
+          rsvp.send(
+            identity.document_request(model.directory, labeler),
+            rsvp.expect_ok_response(fn(response) {
+              DirectoryReturnedLabeler(
+                labeler,
+                result.replace_error(response, tranquil.Unreachable)
+                  |> result.try(fn(response) {
+                    json.parse(response.body, did_document.decoder())
+                    |> result.replace_error(tranquil.NotUnderstood)
+                  }),
+              )
+            }),
+          )
+        })
+      ])
+  })
 }
 
 fn change(model: Model, labeler: Did, with: fn(Labeler) -> Labeler) -> Model {
@@ -269,26 +334,24 @@ fn change(model: Model, labeler: Did, with: fn(Labeler) -> Labeler) -> Model {
 }
 
 fn fail(model: Model, labeler: Did, problem: Problem) -> Model {
-  change(model, labeler, fn(known) {
-    Labeler(..known, labels: Failed(problem:))
-  })
+  change(model, labeler, fn(known) { Labeler(..known, own: Failed(problem:)) })
 }
 
-fn give_up(waiting: Remote(value)) -> Remote(value) {
-  case waiting {
-    Loading -> Failed(tranquil.Unreachable)
-    Loaded(_) | Failed(_) -> waiting
-  }
-}
-
-fn ask_relay(
-  subject: String,
-  after: Option(String),
-  rest: List(String),
-) -> Effect(Message) {
+fn ask_relay(subject: String, after: Option(String)) -> Effect(Message) {
   rsvp.send(
     label.relay_request(subject, after),
-    expect_labels(RelayReturnedLabelers(subject, rest, _)),
+    expect_labels(RelayReturnedLabelers(subject, _)),
+  )
+}
+
+fn ask_appview(
+  model: Model,
+  labelers: List(Did),
+  after: Option(String),
+) -> Effect(Message) {
+  rsvp.send(
+    label.appview_request(model.account, labelers, after),
+    expect_labels(AppViewReturnedLabels(labelers, _)),
   )
 }
 
@@ -332,107 +395,137 @@ fn expect_labels(
   })
 }
 
-fn ask_names(labeler: Did, document: DidDocument) -> Effect(Message) {
-  case
-    did_document.pds(document)
-    |> result.try(label.names_request(_, labeler))
-  {
-    Ok(request) ->
-      rsvp.send(
-        request,
-        rsvp.expect_ok_response(fn(response) {
-          LabelerReturnedNames(
-            labeler,
-            result.replace_error(response, Nil)
-              |> result.try(fn(response) { label.read_names(response.body) }),
-          )
-        }),
-      )
-    Error(Nil) -> effect.none()
-  }
-}
-
 pub fn view(model: Model) -> Element(Message) {
-  let labelers = dict.to_list(model.labelers)
+  let labelers = dict.values(model.labelers)
+  let labels =
+    list.flat_map(labelers, fn(labeler) {
+      case labeler.own {
+        Loaded(value: found) -> found.events
+        Loading | Failed(_) -> labeler.active
+      }
+    })
+    |> label.history(model.opened)
   let is_waiting =
-    list.any(labelers, fn(labeler) { { labeler.1 }.labels == Loading })
+    list.any(labelers, fn(labeler) { labeler.own == Loading })
+    || model.relay != Answered
 
   layout.page([
     layout.title_section("labels", [
-      layout.block(case model.relay, is_waiting {
-        Failed(_), _ -> [layout.problem("Couldn't load labels")]
-        Loading, _ | Loaded(_), True -> [layout.loading(3)]
-        Loaded(_), False -> view_labels(model, labelers)
+      layout.block(case model.relay, labels {
+        Unanswered, _ -> [layout.problem("Couldn't load labels")]
+        Asking(_), [] | Answered, [] if is_waiting -> [layout.loading(3)]
+        Asking(_), _ | Answered, _ ->
+          list.flatten([
+            list.map(labels, view_label(model, _)),
+            case is_waiting {
+              True -> [layout.loading(1)]
+              False -> view_gaps(model, labels)
+            },
+          ])
       }),
     ]),
   ])
 }
 
-fn view_labels(
-  model: Model,
-  labelers: List(#(Did, Labeler)),
-) -> List(Element(Message)) {
-  let found =
-    list.filter_map(labelers, fn(labeler) {
-      case { labeler.1 }.labels {
-        Loaded(value:) -> Ok(value)
-        Loading | Failed(_) -> Error(Nil)
-      }
-    })
-  let events = list.flat_map(found, fn(found) { found.events })
+fn view_gaps(model: Model, labels: List(Label)) -> List(Element(Message)) {
   let unanswered =
-    list.filter_map(labelers, fn(labeler) {
-      case { labeler.1 }.labels {
-        Failed(_) ->
-          Ok(layout.problem(
-            "Couldn't load labels from " <> name(model, labeler.0),
-          ))
+    dict.to_list(model.labelers)
+    |> list.filter_map(fn(labeler) {
+      case { labeler.1 }.own {
+        Failed(_) -> Ok(name(model, labeler.0))
         Loading | Loaded(_) -> Error(Nil)
       }
     })
+  let unreadable =
+    dict.values(model.labelers)
+    |> list.map(fn(labeler) {
+      case labeler.own {
+        Loaded(value: found) -> found.unreadable
+        Loading | Failed(_) -> 0
+      }
+    })
+    |> int.sum
 
-  list.append(
-    layout.listing(
-      empty: "No labels",
-      rows: label.history(events, model.opened)
-        |> list.map(view_label(model, _))
-        |> list.append(unanswered),
-      actions: [],
-    ),
-    case int.sum(list.map(found, fn(found) { found.unreadable })) {
+  list.flatten([
+    case labels, unanswered {
+      [], [] -> [layout.note("No labels", [])]
+      _, _ -> []
+    },
+    case unanswered {
+      [] -> []
+      [_, ..] -> [
+        layout.note("No answer from " <> string.join(unanswered, ", "), []),
+      ]
+    },
+    case unreadable {
       0 -> []
       1 -> [layout.note("1 label couldn't be read", [])]
       count -> [
         layout.note(int.to_string(count) <> " labels couldn't be read", []),
       ]
     },
-  )
+  ])
 }
 
 fn view_label(model: Model, found: Label) -> Element(Message) {
   let day = date.describe_day(_, model.local_offset)
-  let #(tone, when) = case found.state {
-    Active(since:, expires: None) -> #(layout.Plain, "added " <> day(since))
-    Active(since:, expires: Some(expires)) -> #(
-      layout.Plain,
-      "added " <> day(since) <> " \u{00B7} expires " <> day(expires),
-    )
-    Expired(since:, at:) -> #(
-      layout.Past,
-      "added " <> day(since) <> " \u{00B7} expired " <> day(at),
-    )
-    Removed(at:) -> #(layout.Past, "removed " <> day(at))
+  let labeler = dict.get(model.labelers, found.labeler)
+  let #(state, is_past, when) = case found.state {
+    Active(since:, expires: None) -> #("active", False, [
+      "added " <> day(since),
+    ])
+    Active(since:, expires: Some(expires)) -> #("active", False, [
+      "added " <> day(since),
+      "expires " <> day(expires),
+    ])
+    Expired(since:, at:) -> #("expired", True, [
+      "added " <> day(since),
+      "expired " <> day(at),
+    ])
+    Removed(at:) -> #("removed", True, ["removed " <> day(at)])
   }
 
-  layout.row(
-    tone:,
-    name: dict.get(model.labelers, found.labeler)
-      |> result.try(fn(labeler) { dict.get(labeler.names, found.value) })
-      |> result.unwrap(found.value),
-    details: [
-      html.text("by " <> name(model, found.labeler) <> " \u{00B7} " <> when),
+  html.div(
+    [
+      attribute.classes([
+        #("row label-row", True),
+        #("past", is_past),
+      ]),
     ],
-    actions: [],
+    [
+      html.div([attribute.class("what")], [
+        html.span([attribute.class("title")], [
+          html.strong([], [
+            html.text(
+              result.try(labeler, fn(labeler) {
+                dict.get(labeler.names, found.value)
+              })
+              |> result.unwrap(found.value),
+            ),
+          ]),
+          html.span([attribute.class("state")], [html.text(state)]),
+        ]),
+        html.span([attribute.class("labeler")], [
+          case labeler {
+            Ok(Labeler(image: Some(url), ..)) ->
+              html.img([
+                attribute.src(url),
+                attribute.alt(""),
+                attribute.width(20),
+                attribute.height(20),
+                attribute.loading("lazy"),
+              ])
+            Ok(Labeler(image: None, ..)) | Error(Nil) ->
+              html.span([attribute.class("no-avatar")], [])
+          },
+          html.text(name(model, found.labeler)),
+        ]),
+      ]),
+      html.div(
+        [attribute.class("when")],
+        list.map(when, fn(line) { html.span([], [html.text(line)]) }),
+      ),
+    ],
   )
 }
 

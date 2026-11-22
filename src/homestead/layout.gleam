@@ -9,7 +9,6 @@ import lustre/event
 pub type Tone {
   Plain
   Warning
-  Past
 }
 
 pub fn page(sections: List(Element(message))) -> Element(message) {
@@ -394,6 +393,5 @@ fn tone_class(tone: Tone) -> Attribute(message) {
   case tone {
     Plain -> attribute.none()
     Warning -> attribute.class("warning")
-    Past -> attribute.class("past")
   }
 }

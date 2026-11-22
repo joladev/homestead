@@ -1,5 +1,6 @@
 import at/did.{type Did}
 import at/did_document.{type DidDocument, ServiceEndpoint}
+import at/handle.{type Handle}
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
@@ -14,6 +15,8 @@ import gleam/uri.{type Uri}
 import homestead/date
 
 const relay = "https://labelers.firehose.stream"
+
+const appview = "https://public.api.bsky.app"
 
 const page_size = 250
 
@@ -42,6 +45,15 @@ pub type State {
   Removed(at: Timestamp)
 }
 
+pub type Service {
+  Service(
+    labeler: Did,
+    handle: Handle,
+    image: Option(String),
+    names: Dict(String, String),
+  )
+}
+
 pub fn subjects(account: Did) -> List(String) {
   let account = did.to_string(account)
 
@@ -54,7 +66,17 @@ pub fn relay_request(
 ) -> Request(String) {
   let assert Ok(request) = request.to(relay)
 
-  query(request, subject, after)
+  query(request, [subject], [], after)
+}
+
+pub fn appview_request(
+  account: Did,
+  labelers: List(Did),
+  after: Option(String),
+) -> Request(String) {
+  let assert Ok(request) = request.to(appview)
+
+  query(request, subjects(account), labelers, after)
 }
 
 pub fn labeler_request(
@@ -63,15 +85,21 @@ pub fn labeler_request(
   after: Option(String),
 ) -> Result(Request(String), Nil) {
   request.from_uri(server)
-  |> result.map(query(_, subject, after))
+  |> result.map(query(_, [subject], [], after))
 }
 
 fn query(
   request: Request(String),
-  subject: String,
+  subjects: List(String),
+  labelers: List(Did),
   after: Option(String),
 ) -> Request(String) {
-  let page = [#("uriPatterns", subject), #("limit", int.to_string(page_size))]
+  let page =
+    list.flatten([
+      list.map(subjects, fn(subject) { #("uriPatterns", subject) }),
+      list.map(labelers, fn(labeler) { #("sources", did.to_string(labeler)) }),
+      [#("limit", int.to_string(page_size))],
+    ])
 
   request
   |> request.set_path("/xrpc/com.atproto.label.queryLabels")
@@ -182,48 +210,55 @@ fn periods(events: List(Event), now: Timestamp) -> List(Label) {
   }
 }
 
-pub fn names_request(
-  server: Uri,
-  labeler: Did,
-) -> Result(Request(String), Nil) {
-  use request <- result.map(request.from_uri(server))
+pub fn services_request(labelers: List(Did)) -> Request(String) {
+  let assert Ok(request) = request.to(appview)
 
   request
-  |> request.set_path("/xrpc/com.atproto.repo.getRecord")
+  |> request.set_path("/xrpc/app.bsky.labeler.getServices")
   |> request.set_query([
-    #("repo", did.to_string(labeler)),
-    #("collection", "app.bsky.labeler.service"),
-    #("rkey", "self"),
+    #("detailed", "true"),
+    ..list.map(labelers, fn(labeler) { #("dids", did.to_string(labeler)) })
   ])
   |> request.set_header("accept", "application/json")
 }
 
-pub fn read_names(body: String) -> Result(Dict(String, String), Nil) {
+pub fn read_services(body: String) -> Result(List(Service), Nil) {
+  json.parse(body, decode.at(["views"], decode.list(service_decoder())))
+  |> result.replace_error(Nil)
+}
+
+fn service_decoder() -> Decoder(Service) {
+  let name = {
+    use language <- decode.field("lang", decode.string)
+    use name <- decode.field("name", decode.string)
+
+    decode.success(#(language, name))
+  }
   let definition = {
     use value <- decode.field("identifier", decode.string)
-    use names <- decode.field(
-      "locales",
-      decode.list({
-        use language <- decode.field("lang", decode.string)
-        use name <- decode.field("name", decode.string)
-
-        decode.success(#(language, name))
-      }),
-    )
+    use names <- decode.field("locales", decode.list(name))
 
     decode.success(#(value, names))
   }
 
-  json.parse(
-    body,
-    decode.at(
-      ["value", "policies", "labelValueDefinitions"],
-      decode.list(definition),
-    ),
-  )
-  |> result.replace_error(Nil)
-  |> result.map(fn(definitions) {
-    list.filter_map(definitions, fn(definition) {
+  use labeler <- decode.subfield(["creator", "did"], did.decoder())
+  use handle <- decode.subfield(["creator", "handle"], handle.decoder())
+  use image <- decode.then(decode.optionally_at(
+    ["creator", "avatar"],
+    None,
+    decode.optional(decode.string),
+  ))
+  use definitions <- decode.then(decode.optionally_at(
+    ["policies", "labelValueDefinitions"],
+    [],
+    decode.list(definition),
+  ))
+
+  decode.success(Service(
+    labeler:,
+    handle:,
+    image:,
+    names: list.filter_map(definitions, fn(definition) {
       let #(value, names) = definition
 
       case list.key_find(names, "en"), names {
@@ -232,6 +267,6 @@ pub fn read_names(body: String) -> Result(Dict(String, String), Nil) {
         Error(Nil), [] -> Error(Nil)
       }
     })
-    |> dict.from_list
-  })
+      |> dict.from_list,
+  ))
 }
