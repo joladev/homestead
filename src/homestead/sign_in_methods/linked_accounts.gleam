@@ -146,7 +146,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
     layout.block(
       list.flatten([
         case model.accounts {
-          Loading -> []
+          Loading -> [layout.loading(1)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: []) -> [layout.note("No linked accounts", [])]
           Loaded(value: accounts) -> list.map(accounts, view_account(_, model))

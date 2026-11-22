@@ -235,7 +235,7 @@ pub fn view(model: Model) -> Element(Message) {
         layout.block(
           list.flatten([
             case model.passwords {
-              Loading -> []
+              Loading -> [layout.loading(3)]
               Failed(_) -> [layout.problem("Couldn't load")]
               Loaded(value: []) -> [layout.note("No app passwords", [])]
               Loaded(value: passwords) ->

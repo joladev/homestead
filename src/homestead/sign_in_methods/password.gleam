@@ -291,7 +291,7 @@ pub fn describe_refusal(problem: Problem) -> String {
 pub fn view(model: Model, has_passkey: Bool) -> List(Element(Message)) {
   [
     layout.block(case model.has_password, model.action {
-      Loading, _ -> []
+      Loading, _ -> [layout.loading(1)]
       Failed(_), _ -> [layout.problem("Couldn't load")]
 
       Loaded(_), Changing(current:, new:, submission:) ->

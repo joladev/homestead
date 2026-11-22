@@ -120,7 +120,7 @@ fn save(session: Session, allowed: Bool) -> Effect(Message) {
 pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(case model.preference {
-      Loading -> []
+      Loading -> [layout.loading(1)]
       Failed(_) -> [layout.problem("Couldn't load")]
       Loaded(value: preference) -> [
         layout.row(

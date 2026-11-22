@@ -113,7 +113,7 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("server", [
       layout.block(case model.totals {
-        Loading -> []
+        Loading -> [layout.loading(1)]
         Failed(_) -> [layout.problem("Couldn't load")]
         Loaded(value: totals) -> [
           layout.row(

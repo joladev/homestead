@@ -553,7 +553,7 @@ fn view_new_link(collection: String) -> Element(Message) {
 
 fn view_collections(collections: Remote(List(String))) -> Element(Message) {
   layout.block(case collections {
-    Loading -> []
+    Loading -> [layout.loading(3)]
     Failed(_) -> [layout.problem("Couldn't load")]
     Loaded(value: []) -> [layout.note("No collections", [])]
     Loaded(value: collections) ->
@@ -624,7 +624,7 @@ fn view_records(
   layout.block(
     list.flatten([
       case records {
-        Loading -> []
+        Loading -> [layout.loading(3)]
         Failed(_) -> [layout.problem("Couldn't load")]
         Loaded(value: records) ->
           layout.listing(
@@ -689,7 +689,7 @@ fn view_record(
   local_offset: Duration,
 ) -> Element(Message) {
   layout.block(case record {
-    Loading -> []
+    Loading -> [layout.loading(3)]
     Failed(_) -> [layout.problem("Couldn't load")]
     Loaded(value: record) -> [
       case action {

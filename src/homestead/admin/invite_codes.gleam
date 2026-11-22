@@ -191,7 +191,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
     layout.block(
       list.flatten([
         case model.codes {
-          Loading -> []
+          Loading -> [layout.loading(3)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: codes) ->
             layout.listing(

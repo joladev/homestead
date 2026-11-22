@@ -177,7 +177,7 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("export", [
       layout.block(case model.account {
-        Loading -> []
+        Loading -> [layout.loading(2)]
         Failed(_) -> [layout.problem("Couldn't load")]
         Loaded(value: account) -> [
           layout.row(

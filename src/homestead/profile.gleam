@@ -542,7 +542,7 @@ pub fn describe_refusal(problem: Problem) -> String {
 
 pub fn view(model: Model) -> Element(Message) {
   case model.account {
-    Loading -> layout.page([])
+    Loading -> layout.page([layout.loading_section()])
 
     Failed(_) ->
       layout.page([

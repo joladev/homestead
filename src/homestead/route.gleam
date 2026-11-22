@@ -30,6 +30,7 @@ pub type AccessPage {
 pub type DataPage {
   Export
   Repository(location: RepositoryLocation)
+  Labels
 }
 
 pub type RepositoryLocation {
@@ -72,6 +73,7 @@ pub const sections = [
     first: Data(Export),
     rest: [
       Data(Repository(Collections)),
+      Data(Labels),
     ],
   ),
   Section(
@@ -112,6 +114,7 @@ pub fn from_uri(uri: Uri) -> Route {
           NewRecord(collection: option.unwrap(query(uri, "collection"), "")),
         ),
       )
+    ["data", "labels"] -> Data(Labels)
     ["advanced", "delegation"] -> Advanced(Delegation)
     ["advanced", "identity"] -> Advanced(IdentityDocument)
     ["admin"] -> Admin
@@ -140,6 +143,7 @@ pub fn to_path(route: Route) -> String {
     Data(Repository(NewRecord(collection:))) ->
       "/data/repository/new?"
       <> uri.query_to_string([#("collection", collection)])
+    Data(Labels) -> "/data/labels"
     Advanced(Delegation) -> "/advanced/delegation"
     Advanced(IdentityDocument) -> "/advanced/identity"
     Admin -> "/admin"
@@ -159,6 +163,7 @@ pub fn label(route: Route) -> String {
     Access(AppPasswords) -> "App passwords"
     Data(Export) -> "Export"
     Data(Repository(_)) -> "Repository"
+    Data(Labels) -> "Labels"
     Advanced(Delegation) -> "Delegation"
     Advanced(IdentityDocument) -> "Identity document"
     Admin -> "Admin"
@@ -180,6 +185,7 @@ pub fn page(route: Route) -> Route {
     | Account(_)
     | Access(_)
     | Data(Export)
+    | Data(Labels)
     | Advanced(_)
     | Admin
     | NotFound(_) -> route

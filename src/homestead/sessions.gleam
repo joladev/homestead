@@ -147,7 +147,7 @@ pub fn view(model: Model) -> Element(Message) {
 
 pub fn view_list(model: Model) -> Element(Message) {
   case model.sessions {
-    Loading -> element.none()
+    Loading -> layout.block([layout.loading(3)])
 
     Failed(_) -> layout.block([layout.problem("Couldn't load")])
 

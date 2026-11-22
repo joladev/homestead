@@ -13,6 +13,7 @@ import homestead/delegation
 import homestead/delete_account
 import homestead/export
 import homestead/identity_document
+import homestead/labels
 import homestead/notifications
 import homestead/overview
 import homestead/profile
@@ -57,6 +58,7 @@ type Page {
   NotificationsPage(notifications.Model)
   SignInMethodsPage(sign_in_methods.Model)
   ExportPage(export.Model)
+  LabelsPage(labels.Model)
   DeleteAccountPage(delete_account.Model)
   RepositoryPage(repository.Model)
   DelegationPage(delegation.Model)
@@ -175,6 +177,12 @@ fn open(
       #(ExportPage(page), effect.map(effect, ExportProducedMessage))
     }
 
+    Data(route.Labels) -> {
+      let #(page, effect) = labels.init(session, directory)
+
+      #(LabelsPage(page), effect.map(effect, LabelsProducedMessage))
+    }
+
     Data(route.Repository(location:)) -> {
       let #(page, effect) = repository.init(session, location)
 
@@ -222,6 +230,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     | None, NotificationsPage(_)
     | None, SignInMethodsPage(_)
     | None, ExportPage(_)
+    | None, LabelsPage(_)
     | None, RepositoryPage(_)
     | None, DelegationPage(_)
     | None, IdentityDocumentPage(_)
@@ -241,6 +250,7 @@ pub opaque type Message {
   NotificationsProducedMessage(notifications.Message)
   SignInMethodsProducedMessage(sign_in_methods.Message)
   ExportProducedMessage(export.Message)
+  LabelsProducedMessage(labels.Message)
   DeleteAccountProducedMessage(delete_account.Message)
   RepositoryProducedMessage(repository.Message)
   DelegationProducedMessage(delegation.Message)
@@ -348,6 +358,15 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    LabelsProducedMessage(message), LabelsPage(page) -> {
+      let #(page, effect) = labels.update(page, message)
+
+      #(
+        Model(..model, page: LabelsPage(page)),
+        effect.map(effect, LabelsProducedMessage),
+      )
+    }
+
     DeleteAccountProducedMessage(message), DeleteAccountPage(page) -> {
       let #(page, effect) = delete_account.update(page, message)
 
@@ -401,6 +420,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | RepositoryProducedMessage(_), _
     | DeleteAccountProducedMessage(_), _
     | ExportProducedMessage(_), _
+    | LabelsProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
     | SessionsProducedMessage(_), _
@@ -535,6 +555,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       ExportPage(page) ->
         export.view(page) |> element.map(ExportProducedMessage)
+
+      LabelsPage(page) ->
+        labels.view(page) |> element.map(LabelsProducedMessage)
 
       DeleteAccountPage(page) ->
         delete_account.view(page) |> element.map(DeleteAccountProducedMessage)

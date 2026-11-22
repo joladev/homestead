@@ -300,7 +300,7 @@ pub fn view(
     layout.block(
       list.flatten([
         case model.controllers {
-          Loading -> []
+          Loading -> [layout.loading(1)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: controllers) ->
             layout.listing(

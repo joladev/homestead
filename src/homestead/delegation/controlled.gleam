@@ -275,7 +275,7 @@ pub fn view(
     layout.block(
       list.flatten([
         case model.accounts {
-          Loading -> []
+          Loading -> [layout.loading(1)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: accounts) ->
             layout.listing(

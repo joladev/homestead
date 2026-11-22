@@ -148,7 +148,7 @@ pub fn describe_refusal(problem: Problem) -> String {
 pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(case model.is_linked, model.action {
-      Loading, _ -> []
+      Loading, _ -> [layout.loading(1)]
       Failed(_), _ -> [layout.problem("Couldn't load")]
 
       Loaded(_), Scanning(qr_image:, ..) -> [

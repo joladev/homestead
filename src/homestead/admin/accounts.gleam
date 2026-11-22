@@ -270,7 +270,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
           ]),
         ],
         case model.accounts {
-          Loading -> []
+          Loading -> [layout.loading(3)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: accounts) ->
             layout.listing(

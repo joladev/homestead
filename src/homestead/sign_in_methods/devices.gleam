@@ -188,7 +188,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
     layout.block(
       list.flatten([
         case model.devices {
-          Loading -> []
+          Loading -> [layout.loading(1)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: []) -> [layout.note("No remembered devices", [])]
           Loaded(value: devices) -> list.map(devices, view_device(_, model))

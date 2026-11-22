@@ -294,6 +294,68 @@ h3 {
     padding: var(--space-1) 0;
 }
 
+.loading {
+    opacity: 0;
+    animation: loading-appear 0s linear 200ms forwards;
+}
+
+.loading.heading {
+    display: flex;
+    align-items: center;
+    min-height: var(--control);
+}
+
+.bar {
+    display: block;
+    height: 12px;
+    background: var(--line-strong);
+    animation: loading-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton .bar.label {
+    width: 96px;
+}
+
+.skeleton .bar.details {
+    width: min(320px, 60%);
+}
+
+.skeleton:nth-child(2) .bar.details {
+    width: min(420px, 75%);
+}
+
+.skeleton:nth-child(3) .bar.details {
+    width: min(240px, 45%);
+}
+
+.loading.heading .bar {
+    width: 140px;
+}
+
+.bar.pending {
+    display: inline-block;
+    width: 160px;
+    vertical-align: middle;
+}
+
+@keyframes loading-appear {
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes loading-pulse {
+    50% {
+        opacity: 0.4;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bar {
+        animation: none;
+    }
+}
+
 .block {
     margin: var(--space-1) 0 0;
     border-top: 1px dashed var(--line);
@@ -478,6 +540,15 @@ h3 {
 
 .row.full > .details {
     grid-column: 1 / -1;
+}
+
+.row.past > strong {
+    color: var(--text-dim);
+    font-weight: 400;
+}
+
+.row.past > .details {
+    color: var(--text-dim);
 }
 
 .row.note > .details {

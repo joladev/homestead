@@ -105,7 +105,7 @@ pub fn view(
 ) -> List(Element(Message)) {
   [
     layout.block(case model.entries {
-      Loading -> []
+      Loading -> [layout.loading(3)]
       Failed(_) -> [layout.problem("Couldn't load")]
       Loaded(value: []) -> [layout.note("No entries", [])]
       Loaded(value: entries) ->

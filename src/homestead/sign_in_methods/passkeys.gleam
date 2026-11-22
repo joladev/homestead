@@ -248,7 +248,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
     layout.block(
       list.flatten([
         case model.passkeys {
-          Loading -> []
+          Loading -> [layout.loading(1)]
           Failed(_) -> [layout.problem("Couldn't load")]
           Loaded(value: []) -> [layout.note("No passkeys", [])]
           Loaded(value: passkeys) -> list.map(passkeys, view_passkey(_, model))

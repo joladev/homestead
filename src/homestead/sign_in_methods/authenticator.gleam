@@ -316,7 +316,7 @@ pub fn describe_refusal(problem: Problem) -> String {
 pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(case model.status, model.action {
-      Loading, _ -> []
+      Loading, _ -> [layout.loading(1)]
       Failed(_), _ -> [layout.problem("Couldn't load")]
       Loaded(_), Scanning(setup:, code:, submission:) ->
         view_setup(setup, code, submission)

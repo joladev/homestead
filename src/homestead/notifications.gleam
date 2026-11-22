@@ -156,7 +156,7 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("alerts", [
       layout.block(case model.login_alerts {
-        Loading -> []
+        Loading -> [layout.loading(1)]
         Failed(_) -> [layout.problem("Couldn't load")]
         Loaded(value: enabled) -> [
           layout.row(
@@ -186,7 +186,7 @@ pub fn view(model: Model) -> Element(Message) {
     ]),
     layout.section("language", [
       layout.block(case model.language {
-        Loading -> []
+        Loading -> [layout.loading(1)]
         Failed(_) -> [layout.problem("Couldn't load")]
         Loaded(value: language) -> [
           layout.row(
@@ -213,7 +213,7 @@ pub fn view(model: Model) -> Element(Message) {
     ]),
     layout.section("messages", [
       layout.block(case model.messages {
-        Loading -> []
+        Loading -> [layout.loading(3)]
         Failed(_) -> [layout.problem("Couldn't load")]
         Loaded(value: []) -> [layout.note("No messages", [])]
         Loaded(value: messages) ->

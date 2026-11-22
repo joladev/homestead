@@ -9,6 +9,7 @@ import lustre/event
 pub type Tone {
   Plain
   Warning
+  Past
 }
 
 pub fn page(sections: List(Element(message))) -> Element(message) {
@@ -87,6 +88,43 @@ fn heading(
         html.div([attribute.class("actions")], actions),
       ])
   }
+}
+
+pub fn loading(rows: Int) -> Element(message) {
+  html.div(
+    [
+      attribute.class("loading"),
+      attribute.role("status"),
+      attribute.aria_label("Loading"),
+    ],
+    list.repeat(
+      html.div([attribute.class("row skeleton"), attribute.aria_hidden(True)], [
+        html.span([attribute.class("bar label")], []),
+        html.span([attribute.class("bar details")], []),
+      ]),
+      rows,
+    ),
+  )
+}
+
+pub fn loading_section() -> Element(message) {
+  html.section([], [
+    html.div([attribute.class("loading heading")], [
+      html.span([attribute.class("bar")], []),
+    ]),
+    block([loading(3)]),
+  ])
+}
+
+pub fn pending() -> Element(message) {
+  html.span(
+    [
+      attribute.class("loading"),
+      attribute.role("status"),
+      attribute.aria_label("Loading"),
+    ],
+    [html.span([attribute.class("bar pending")], [])],
+  )
 }
 
 pub fn block(rows: List(Element(message))) -> Element(message) {
@@ -356,5 +394,6 @@ fn tone_class(tone: Tone) -> Attribute(message) {
   case tone {
     Plain -> attribute.none()
     Warning -> attribute.class("warning")
+    Past -> attribute.class("past")
   }
 }

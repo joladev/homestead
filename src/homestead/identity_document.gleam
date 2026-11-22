@@ -181,7 +181,7 @@ pub fn view(model: Model) -> Element(Message) {
   }
 
   layout.page(case model.identity {
-    Loading -> []
+    Loading -> [layout.loading_section()]
 
     Failed(_) -> [
       layout.title_section("identity", [

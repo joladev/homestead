@@ -254,7 +254,7 @@ pub fn view(
   account: Remote(tranquil.Account),
 ) -> Element(Message) {
   case account, model.display_name {
-    Loading, _ | Loaded(_), Loading -> layout.page([])
+    Loading, _ | Loaded(_), Loading -> layout.page([layout.loading_section()])
 
     Failed(_), _ ->
       layout.page([
@@ -319,7 +319,7 @@ fn view_row(row: Row) -> Element(Message) {
     name: row.label,
     details: [
       case row.facts {
-        Loading -> layout.dim("Loading…")
+        Loading -> layout.pending()
         Loaded(value: facts) -> html.text(facts)
         Failed(_) -> layout.dim("Couldn't load")
       },
