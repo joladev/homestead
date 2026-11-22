@@ -334,6 +334,13 @@ h3 {
     font-size: 16px;
 }
 
+.message-body {
+    display: block;
+    padding: var(--space-2) 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .row code {
     font-size: 18px;
 }

@@ -53,7 +53,24 @@ pub type Account {
 }
 
 pub type Server {
-  Server(handle_domains: List(String), contact_channels: List(String))
+  Server(
+    handle_domains: List(String),
+    contact_channels: List(String),
+    discord_bot: Option(String),
+    discord_app_id: Option(String),
+    telegram_bot: Option(String),
+  )
+}
+
+pub type SentMessage {
+  SentMessage(
+    sent: Timestamp,
+    channel: String,
+    kind: String,
+    status: String,
+    subject: Option(String),
+    body: String,
+  )
 }
 
 pub type ContactPreferences {
@@ -137,9 +154,53 @@ pub fn server() -> Query(Server) {
       ["email"],
       decode.list(decode.string),
     )
+    use discord_bot <- optional_text("discordBotUsername")
+    use discord_app_id <- optional_text("discordAppId")
+    use telegram_bot <- optional_text("telegramBotUsername")
 
-    decode.success(Server(handle_domains:, contact_channels:))
+    decode.success(Server(
+      handle_domains:,
+      contact_channels:,
+      discord_bot:,
+      discord_app_id:,
+      telegram_bot:,
+    ))
   })
+}
+
+pub fn login_alerts() -> Query(Bool) {
+  query(
+    "_account.getNotificationPrefs",
+    [],
+    decode.at(["legacyLoginAlerts"], decode.bool),
+  )
+}
+
+pub fn sent_messages() -> Query(List(SentMessage)) {
+  query(
+    "_account.getNotificationHistory",
+    [],
+    decode.at(
+      ["notifications"],
+      decode.list({
+        use sent <- decode.field("createdAt", timestamp_decoder())
+        use channel <- decode.field("channel", decode.string)
+        use kind <- decode.field("commsType", decode.string)
+        use status <- decode.field("status", decode.string)
+        use subject <- optional_text("subject")
+        use body <- decode.field("body", decode.string)
+
+        decode.success(SentMessage(
+          sent:,
+          channel:,
+          kind:,
+          status:,
+          subject:,
+          body:,
+        ))
+      }),
+    ),
+  )
 }
 
 pub fn contact_preferences() -> Query(ContactPreferences) {
@@ -362,29 +423,22 @@ pub fn change_email(email: String, code: Option(String)) -> Command(Nil) {
 pub fn update_contact(
   preferred: String,
   usernames: List(#(String, String)),
-) -> Command(List(String)) {
+) -> Command(Nil) {
   let usernames =
     list.map(usernames, fn(entry) {
       #(entry.0 <> "Username", json.string(entry.1))
     })
 
-  Command(
-    path: "/xrpc/_account.updateNotificationPrefs",
-    body: json.object([
-      #("preferredChannel", json.string(preferred)),
-      ..usernames
-    ]),
-    read: fn(answer) {
-      let decoder =
-        decode.optional_field(
-          "verificationRequired",
-          [],
-          decode.list(decode.string),
-          decode.success,
-        )
+  command(
+    "_account.updateNotificationPrefs",
+    json.object([#("preferredChannel", json.string(preferred)), ..usernames]),
+  )
+}
 
-      json.parse(answer, decoder) |> result.replace_error(NotUnderstood)
-    },
+pub fn set_login_alerts(enabled: Bool) -> Command(Nil) {
+  command(
+    "_account.updateNotificationPrefs",
+    json.object([#("legacyLoginAlerts", json.bool(enabled))]),
   )
 }
 
@@ -502,6 +556,13 @@ fn accepted(
     | Error(session.NothingStored)
     | Error(session.Failed(_)) -> Error(Unreachable)
   }
+}
+
+fn optional_text(
+  name: String,
+  next: fn(Option(String)) -> Decoder(answer),
+) -> Decoder(answer) {
+  decode.optional_field(name, None, decode.optional(decode.string), next)
 }
 
 fn timestamp_decoder() -> Decoder(Timestamp) {

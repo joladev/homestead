@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
+import homestead/notifications
 import homestead/overview
 import homestead/profile
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
@@ -41,6 +42,7 @@ type Page {
   ConnectedAppsPage(connected_apps.Model)
   AppPasswordsPage(app_passwords.Model)
   ProfilePage(profile.Model)
+  NotificationsPage(notifications.Model)
   PlaceholderPage
 }
 
@@ -109,12 +111,19 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       #(ProfilePage(page), effect.map(effect, ProfileProducedMessage))
     }
 
-    Account(route.Notifications)
-    | Access(SignInMethods)
-    | Data(_)
-    | Advanced(_)
-    | Admin
-    | NotFound(_) -> #(PlaceholderPage, effect.none())
+    Account(route.Notifications) -> {
+      let #(page, effect) = notifications.init(session)
+
+      #(
+        NotificationsPage(page),
+        effect.map(effect, NotificationsProducedMessage),
+      )
+    }
+
+    Access(SignInMethods) | Data(_) | Advanced(_) | Admin | NotFound(_) -> #(
+      PlaceholderPage,
+      effect.none(),
+    )
   }
 }
 
@@ -125,6 +134,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     ConnectedAppsPage(page) -> connected_apps.departure(page)
     AppPasswordsPage(page) -> app_passwords.departure(page)
     ProfilePage(page) -> profile.departure(page)
+    NotificationsPage(page) -> notifications.departure(page)
     PlaceholderPage -> None
   }
 
@@ -142,6 +152,7 @@ pub opaque type Message {
   ConnectedAppsProducedMessage(connected_apps.Message)
   AppPasswordsProducedMessage(app_passwords.Message)
   ProfileProducedMessage(profile.Message)
+  NotificationsProducedMessage(notifications.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -208,8 +219,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    NotificationsProducedMessage(message), NotificationsPage(page) -> {
+      let #(page, effect) = notifications.update(page, message)
+
+      #(
+        Model(..model, page: NotificationsPage(page)),
+        effect.map(effect, NotificationsProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | NotificationsProducedMessage(_), _
     | SessionsProducedMessage(_), _
     | ConnectedAppsProducedMessage(_), _
     | AppPasswordsProducedMessage(_), _
@@ -313,6 +334,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       ProfilePage(page) ->
         profile.view(page) |> element.map(ProfileProducedMessage)
+
+      NotificationsPage(page) ->
+        notifications.view(page) |> element.map(NotificationsProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

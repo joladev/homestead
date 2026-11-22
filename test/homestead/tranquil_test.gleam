@@ -3,7 +3,7 @@ import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, ChannelUsername, ContactPreferences, OtherSoftware,
-  RememberedApp, Server, Tranquil,
+  RememberedApp, SentMessage, Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -87,9 +87,13 @@ pub fn a_server_without_contact_channels_offers_email_test() {
       tranquil.server(),
       "{\"availableUserDomains\":[\"harbor.example\"]}",
     )
-    == Ok(
-      Server(handle_domains: ["harbor.example"], contact_channels: ["email"]),
-    )
+    == Ok(Server(
+      handle_domains: ["harbor.example"],
+      contact_channels: ["email"],
+      discord_bot: None,
+      discord_app_id: None,
+      telegram_bot: None,
+    ))
 }
 
 pub fn contact_preferences_list_each_channels_username_test() {
@@ -106,4 +110,23 @@ pub fn contact_preferences_list_each_channels_username_test() {
         ChannelUsername(channel: "signal", username: "", verified: False),
       ]),
     )
+}
+
+pub fn a_sent_message_without_a_subject_has_none_test() {
+  let body =
+    "{\"notifications\":[{\"createdAt\":\"2026-11-21T19:04:36+00:00\",
+      \"channel\":\"discord\",\"commsType\":\"channel_verified\",
+      \"status\":\"sent\",\"subject\":null,\"body\":\"Verified\"}]}"
+
+  assert tranquil.parse(tranquil.sent_messages(), body)
+    == Ok([
+      SentMessage(
+        sent: timestamp.from_unix_seconds(1_795_287_876),
+        channel: "discord",
+        kind: "channel_verified",
+        status: "sent",
+        subject: None,
+        body: "Verified",
+      ),
+    ])
 }

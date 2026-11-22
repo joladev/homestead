@@ -54,6 +54,16 @@ pub fn details_row(details: List(Element(message))) -> Element(message) {
   ])
 }
 
+pub fn hint(
+  details details: List(Element(message)),
+  actions actions: List(Element(message)),
+) -> Element(message) {
+  html.div([attribute.class("row")], [
+    html.span([attribute.class("details")], details),
+    html.div([attribute.class("actions")], actions),
+  ])
+}
+
 pub fn actions_row(actions: List(Element(message))) -> Element(message) {
   html.div([attribute.class("row")], [
     html.div([attribute.class("actions")], actions),
