@@ -14,6 +14,7 @@ import gleam/result
 import gleam/string
 import gleam/uri.{type Uri}
 import homestead/identity
+import homestead/landing
 import homestead/session
 import homestead/tern.{type Actor}
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
@@ -365,32 +366,13 @@ fn prepare_sign_in(did: Did) -> Effect(Message) {
 }
 
 pub fn view(model: Model) -> Element(Message) {
-  html.div([attribute.class("landing")], [
-    html.section([attribute.class("about")], [
-      html.span([attribute.class("brand")], [html.text("Homestead")]),
-      html.div([], [
-        html.h1([], [html.text("A portable Tranquil frontend dashboard.")]),
-        html.p([], [
-          html.text(
-            "Homestead is a fully browser based frontend for the Tranquil PDS, log into any backend safely from your browser, or run your own.",
-          ),
-        ]),
-      ]),
-      html.ul([attribute.class("assurances")], [
-        html.li([], [html.text("Lorem ipsum dolor sit amet")]),
-        html.li([], [html.text("Consectetur adipiscing elit")]),
-      ]),
+  landing.view([
+    html.h2([], [html.text("Sign in")]),
+    view_form(model),
+    html.a([attribute.class("create-account"), attribute.href("/sign-up")], [
+      html.text("No account yet? Create one"),
     ]),
-    html.main([attribute.class("sign-in")], [
-      html.div([], [
-        html.h2([], [html.text("Sign in")]),
-        view_form(model),
-        html.a([attribute.class("create-account"), attribute.href("/sign-up")], [
-          html.text("No account yet? Create one"),
-        ]),
-        view_lookup(model.lookup),
-      ]),
-    ]),
+    view_lookup(model.lookup),
   ])
 }
 

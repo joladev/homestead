@@ -48,6 +48,21 @@ export function begin(did, scope) {
   });
 }
 
+export function beginSignUp(server, scope) {
+  return attempt(async () => {
+    const registration = await createAuthorizationUrl({
+      target: { type: "pds", serviceUrl: server },
+      scope,
+      prompt: "create",
+    });
+    await new Promise((resolve) =>
+      setTimeout(resolve, STORAGE_PERSIST_MILLISECONDS),
+    );
+
+    return registration.href;
+  });
+}
+
 export function complete(answer) {
   return attempt(async () => {
     const { session } = await finalizeAuthorization(

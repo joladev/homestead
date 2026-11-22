@@ -5,6 +5,7 @@ import homestead/dashboard
 import homestead/route.{Overview}
 import homestead/session.{type Session}
 import homestead/sign_in
+import homestead/sign_up
 import lustre
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -49,6 +50,7 @@ type State {
   Restoring(location: Uri)
   CompletingSignIn
   SignedOut(sign_in: sign_in.Model)
+  SigningUp(sign_up: sign_up.Model)
   SignedIn(dashboard: dashboard.Model)
 }
 
@@ -75,6 +77,7 @@ fn init(start: Start) -> #(Model, Effect(Message)) {
 
 type Message {
   SignInProducedMessage(sign_in.Message)
+  SignUpProducedMessage(sign_up.Message)
   BrowserRestoredSession(result: Result(Session, session.Problem))
   ServerIssuedSession(result: Result(Session, session.Problem))
   UserNavigatedTo(uri: Uri)
@@ -94,14 +97,29 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    SigningUp(sign_up:), SignUpProducedMessage(message) -> {
+      let #(sign_up, effect) = sign_up.update(sign_up, message)
+
+      #(
+        Model(..model, state: SigningUp(sign_up:)),
+        effect.map(effect, SignUpProducedMessage),
+      )
+    }
+
+    SignedOut(_), UserNavigatedTo(uri:) | SigningUp(_), UserNavigatedTo(uri:) -> #(
+      Model(..model, state: signed_out(uri, sign_in)),
+      effect.none(),
+    )
+
     Restoring(location:), BrowserRestoredSession(result: Ok(session)) ->
       open_dashboard(
         model,
         dashboard.init(session, model.directory, route.from_uri(location)),
       )
 
-    Restoring(_), BrowserRestoredSession(result: Error(session.NothingStored))
-    -> #(Model(..model, state: SignedOut(sign_in:)), effect.none())
+    Restoring(location:),
+      BrowserRestoredSession(result: Error(session.NothingStored))
+    -> #(Model(..model, state: signed_out(location, sign_in)), effect.none())
 
     Restoring(_), BrowserRestoredSession(result: Error(_)) -> #(
       Model(..model, state: SignedOut(sign_in.report_ended_session(sign_in))),
@@ -160,7 +178,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | CompletingSignIn, DashboardProducedMessage(_)
     | SignedOut(_), BrowserRestoredSession(_)
     | SignedOut(_), ServerIssuedSession(_)
-    | SignedOut(_), UserNavigatedTo(_)
+    | SignedOut(_), SignUpProducedMessage(_)
+    | SigningUp(_), SignInProducedMessage(_)
+    | SigningUp(_), BrowserRestoredSession(_)
+    | SigningUp(_), ServerIssuedSession(_)
+    | SigningUp(_), DashboardProducedMessage(_)
+    | Restoring(_), SignUpProducedMessage(_)
+    | CompletingSignIn, SignUpProducedMessage(_)
+    | SignedIn(_), SignUpProducedMessage(_)
     | SignedOut(_), DashboardProducedMessage(_)
     | SignedIn(_), SignInProducedMessage(_)
     | SignedIn(_), BrowserRestoredSession(_)
@@ -179,6 +204,13 @@ fn open_dashboard(
     Model(..model, state: SignedIn(dashboard:)),
     effect.map(effect, DashboardProducedMessage),
   )
+}
+
+fn signed_out(location: Uri, sign_in: sign_in.Model) -> State {
+  case location.path {
+    "/sign-up" -> SigningUp(sign_up.init())
+    _ -> SignedOut(sign_in:)
+  }
 }
 
 fn overview() -> Uri {
@@ -218,6 +250,9 @@ fn view(model: Model) -> Element(Message) {
 
     SignedOut(sign_in:) ->
       sign_in.view(sign_in) |> element.map(SignInProducedMessage)
+
+    SigningUp(sign_up:) ->
+      sign_up.view(sign_up) |> element.map(SignUpProducedMessage)
 
     SignedIn(dashboard:) ->
       dashboard.view(dashboard) |> element.map(DashboardProducedMessage)
