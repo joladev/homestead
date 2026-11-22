@@ -1,6 +1,8 @@
 import at/did.{type Did}
+import gleam/javascript/array.{type Array}
 import gleam/javascript/promise.{type Promise}
-import gleam/option.{Some}
+import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri, Uri}
@@ -27,6 +29,11 @@ pub type Client {
 pub type Departure {
   SignedOut
   Ended
+  SwitchedAccount(account: String)
+}
+
+pub type StoredAccount {
+  StoredAccount(did: String, handle: Option(String))
 }
 
 pub type Problem {
@@ -97,11 +104,37 @@ pub fn complete(answer: String) -> Promise(Result(Session, Problem)) {
 
 pub fn restore() -> Promise(Result(Session, Problem)) {
   case stored_account() {
-    Ok(account) ->
-      do_restore(account) |> promise.map(result.map_error(_, problem))
+    Ok(account) -> switch_to(account)
     Error(Nil) -> promise.resolve(Error(NothingStored))
   }
 }
+
+pub fn switch_to(account: String) -> Promise(Result(Session, Problem)) {
+  do_restore(account) |> promise.map(result.map_error(_, problem))
+}
+
+pub fn stored_accounts() -> List(StoredAccount) {
+  array.to_list(do_stored_accounts())
+  |> list.map(fn(did) {
+    StoredAccount(did:, handle: option.from_result(remembered_handle(did)))
+  })
+  |> list.sort(fn(one, other) {
+    string.compare(account_name(one), account_name(other))
+  })
+}
+
+pub fn account_name(account: StoredAccount) -> String {
+  case account.handle {
+    Some(handle) -> "@" <> handle
+    None -> account.did
+  }
+}
+
+@external(javascript, "./session_ffi.mjs", "remove")
+pub fn remove(account: String) -> Promise(Nil)
+
+@external(javascript, "./session_ffi.mjs", "rememberHandle")
+pub fn remember_handle(session: Session, handle: String) -> Nil
 
 @external(javascript, "./session_ffi.mjs", "end")
 pub fn end(session: Session) -> Promise(Nil)
@@ -190,6 +223,12 @@ fn do_complete(answer: String) -> Promise(Result(Session, String))
 
 @external(javascript, "./session_ffi.mjs", "storedAccount")
 fn stored_account() -> Result(String, Nil)
+
+@external(javascript, "./session_ffi.mjs", "storedAccounts")
+fn do_stored_accounts() -> Array(String)
+
+@external(javascript, "./session_ffi.mjs", "rememberedHandle")
+fn remembered_handle(account: String) -> Result(String, Nil)
 
 @external(javascript, "./session_ffi.mjs", "restore")
 fn do_restore(account: String) -> Promise(Result(Session, String))

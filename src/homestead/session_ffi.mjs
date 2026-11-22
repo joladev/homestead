@@ -18,6 +18,7 @@ import { Result$Error, Result$Ok } from "../gleam.mjs";
 
 const STORAGE_PERSIST_MILLISECONDS = 200;
 const CURRENT_ACCOUNT = "homestead:current-account";
+const HANDLE = "homestead:handle:";
 
 export function configure(clientId, redirectUri, directory) {
   configureOAuth({
@@ -123,14 +124,35 @@ export function restore(did) {
   });
 }
 
-export async function end(agent) {
+export function end(agent) {
   localStorage.removeItem(CURRENT_ACCOUNT);
 
+  return remove(agent.sub);
+}
+
+export async function remove(did) {
   try {
-    await agent.signOut();
+    const session = await getSession(did, { allowStale: true });
+    await new OAuthUserAgent(session).signOut();
   } catch {
-    deleteStoredSession(agent.sub);
+    deleteStoredSession(did);
   }
+
+  localStorage.removeItem(HANDLE + did);
+}
+
+export function storedAccounts() {
+  return listStoredSessions();
+}
+
+export function rememberedHandle(did) {
+  const handle = localStorage.getItem(HANDLE + did);
+
+  return handle === null ? Result$Error(undefined) : Result$Ok(handle);
+}
+
+export function rememberHandle(agent, handle) {
+  localStorage.setItem(HANDLE + agent.sub, handle);
 }
 
 export function get(agent, path) {
@@ -189,6 +211,7 @@ export function save(agent, path, filename) {
 
 export function forget(agent) {
   deleteStoredSession(agent.sub);
+  localStorage.removeItem(HANDLE + agent.sub);
 }
 
 export function account(agent) {

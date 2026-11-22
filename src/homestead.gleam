@@ -51,6 +51,7 @@ type State {
   Restoring(location: Uri)
   CompletingSignIn
   SignedOut(sign_in: sign_in.Model)
+  AddingAccount(sign_in: sign_in.Model)
   SigningUp(sign_up: sign_up.Model)
   SignedIn(dashboard: dashboard.Model)
   ReadingAbout
@@ -65,11 +66,10 @@ fn init(start: Start) -> #(Model, Effect(Message)) {
   {
     True, Some(answer) -> #(CompletingSignIn, complete_sign_in(answer))
     True, None -> #(
-      SignedOut(sign_in.init(directory) |> sign_in.report_incomplete_sign_in),
+      SignedOut(new_sign_in(directory) |> sign_in.report_incomplete_sign_in),
       show_overview(),
     )
-    False, _ if location.path == about.path -> #(ReadingAbout, effect.none())
-    False, _ -> #(Restoring(location:), restore_session())
+    False, _ -> enter(directory, location)
   }
 
   #(
@@ -88,17 +88,12 @@ type Message {
 }
 
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
-  let sign_in = sign_in.init(model.directory)
-
   case model.state, message {
-    SignedOut(sign_in:), SignInProducedMessage(message) -> {
-      let #(sign_in, effect) = sign_in.update(sign_in, message)
+    SignedOut(sign_in:), SignInProducedMessage(message) ->
+      update_sign_in(model, sign_in, message, SignedOut)
 
-      #(
-        Model(..model, state: SignedOut(sign_in:)),
-        effect.map(effect, SignInProducedMessage),
-      )
-    }
+    AddingAccount(sign_in:), SignInProducedMessage(message) ->
+      update_sign_in(model, sign_in, message, AddingAccount)
 
     SigningUp(sign_up:), SignUpProducedMessage(message) -> {
       let #(sign_up, effect) = sign_up.update(sign_up, message)
@@ -109,20 +104,20 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
-    _, UserNavigatedTo(uri:) if uri.path == about.path -> #(
-      Model(..model, state: ReadingAbout),
-      effect.none(),
-    )
+    AddingAccount(_), UserNavigatedTo(uri:)
+    | SigningUp(_), UserNavigatedTo(uri:)
+    | ReadingAbout, UserNavigatedTo(uri:)
+    -> {
+      let #(state, effect) = enter(model.directory, uri)
 
-    ReadingAbout, UserNavigatedTo(uri:) -> #(
-      Model(..model, state: Restoring(location: uri)),
-      restore_session(),
-    )
+      #(Model(..model, state:), effect)
+    }
 
-    SignedOut(_), UserNavigatedTo(uri:) | SigningUp(_), UserNavigatedTo(uri:) -> #(
-      Model(..model, state: signed_out(uri, sign_in)),
-      effect.none(),
-    )
+    SignedOut(_), UserNavigatedTo(uri:) ->
+      case front_page(model.directory, uri) {
+        Ok(state) -> #(Model(..model, state:), effect.none())
+        Error(Nil) -> #(model, effect.none())
+      }
 
     Restoring(location:), BrowserRestoredSession(result: Ok(session)) ->
       open_dashboard(
@@ -130,12 +125,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         dashboard.init(session, model.directory, route.from_uri(location)),
       )
 
-    Restoring(location:),
-      BrowserRestoredSession(result: Error(session.NothingStored))
-    -> #(Model(..model, state: signed_out(location, sign_in)), effect.none())
+    Restoring(_), BrowserRestoredSession(result: Error(session.NothingStored))
+    -> #(
+      Model(..model, state: SignedOut(new_sign_in(model.directory))),
+      effect.none(),
+    )
 
     Restoring(_), BrowserRestoredSession(result: Error(_)) -> #(
-      Model(..model, state: SignedOut(sign_in.report_ended_session(sign_in))),
+      Model(..model, state: ended_session(model.directory)),
       effect.none(),
     )
 
@@ -152,13 +149,19 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     CompletingSignIn, ServerIssuedSession(result: Error(_)) -> #(
       Model(
         ..model,
-        state: SignedOut(sign_in.report_incomplete_sign_in(sign_in)),
+        state: SignedOut(
+          new_sign_in(model.directory) |> sign_in.report_incomplete_sign_in,
+        ),
       ),
       show_overview(),
     )
 
     SignedIn(dashboard:), UserNavigatedTo(uri:) ->
-      open_dashboard(model, dashboard.show(dashboard, route.from_uri(uri)))
+      case front_page(model.directory, uri) {
+        Ok(state) -> #(Model(..model, state:), effect.none())
+        Error(Nil) ->
+          open_dashboard(model, dashboard.show(dashboard, route.from_uri(uri)))
+      }
 
     SignedIn(dashboard:), DashboardProducedMessage(message) -> {
       let #(dashboard, effect) = dashboard.update(dashboard, message)
@@ -172,12 +175,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
 
         Some(session.Ended) -> #(
-          Model(
-            ..model,
-            state: SignedOut(sign_in.report_ended_session(sign_in)),
-          ),
+          Model(..model, state: ended_session(model.directory)),
           show_overview(),
         )
+
+        Some(session.SwitchedAccount(account:)) ->
+          switch_account(model, account)
       }
     }
 
@@ -192,6 +195,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | SignedOut(_), BrowserRestoredSession(_)
     | SignedOut(_), ServerIssuedSession(_)
     | SignedOut(_), SignUpProducedMessage(_)
+    | AddingAccount(_), BrowserRestoredSession(_)
+    | AddingAccount(_), ServerIssuedSession(_)
+    | AddingAccount(_), SignUpProducedMessage(_)
+    | AddingAccount(_), DashboardProducedMessage(_)
     | ReadingAbout, SignInProducedMessage(_)
     | ReadingAbout, SignUpProducedMessage(_)
     | ReadingAbout, BrowserRestoredSession(_)
@@ -224,11 +231,52 @@ fn open_dashboard(
   )
 }
 
-fn signed_out(location: Uri, sign_in: sign_in.Model) -> State {
-  case location.path {
-    "/sign-up" -> SigningUp(sign_up.init())
-    _ -> SignedOut(sign_in:)
+fn enter(directory: Uri, location: Uri) -> #(State, Effect(Message)) {
+  case front_page(directory, location) {
+    Ok(state) -> #(state, effect.none())
+    Error(Nil) -> #(Restoring(location:), restore_session())
   }
+}
+
+fn front_page(directory: Uri, location: Uri) -> Result(State, Nil) {
+  case location.path {
+    path if path == about.path -> Ok(ReadingAbout)
+    path if path == sign_in.path -> Ok(AddingAccount(new_sign_in(directory)))
+    "/sign-up" -> Ok(SigningUp(sign_up.init()))
+    _ -> Error(Nil)
+  }
+}
+
+fn new_sign_in(directory: Uri) -> sign_in.Model {
+  sign_in.init(directory, session.stored_accounts())
+}
+
+fn ended_session(directory: Uri) -> State {
+  SignedOut(new_sign_in(directory) |> sign_in.report_ended_session)
+}
+
+fn update_sign_in(
+  model: Model,
+  sign_in: sign_in.Model,
+  message: sign_in.Message,
+  to_state: fn(sign_in.Model) -> State,
+) -> #(Model, Effect(Message)) {
+  let #(sign_in, effect) = sign_in.update(sign_in, message)
+
+  case sign_in.chosen_account(sign_in) {
+    Some(account) -> switch_account(model, account)
+    None -> #(
+      Model(..model, state: to_state(sign_in)),
+      effect.map(effect, SignInProducedMessage),
+    )
+  }
+}
+
+fn switch_account(model: Model, account: String) -> #(Model, Effect(Message)) {
+  #(
+    Model(..model, state: Restoring(location: overview())),
+    effect.batch([show_overview(), restore_account(account)]),
+  )
 }
 
 fn overview() -> Uri {
@@ -243,6 +291,15 @@ fn restore_session() -> Effect(Message) {
   use dispatch <- effect.from
 
   session.restore()
+  |> promise.tap(fn(restored) { dispatch(BrowserRestoredSession(restored)) })
+
+  Nil
+}
+
+fn restore_account(account: String) -> Effect(Message) {
+  use dispatch <- effect.from
+
+  session.switch_to(account)
   |> promise.tap(fn(restored) { dispatch(BrowserRestoredSession(restored)) })
 
   Nil
@@ -266,7 +323,7 @@ fn view(model: Model) -> Element(Message) {
         html.p([], [html.text("Signing you in…")]),
       ])
 
-    SignedOut(sign_in:) ->
+    SignedOut(sign_in:) | AddingAccount(sign_in:) ->
       sign_in.view(sign_in) |> element.map(SignInProducedMessage)
 
     SigningUp(sign_up:) ->

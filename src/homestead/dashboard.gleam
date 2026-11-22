@@ -1,5 +1,6 @@
 import gleam/bool
 import gleam/dynamic/decode
+import gleam/int
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -21,8 +22,9 @@ import homestead/route.{
   type Route, type Section, Access, Account, Admin, Advanced, AppPasswords,
   ConnectedApps, Data, NotFound, Overview, Section, Sessions, SignInMethods,
 }
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Departure, type Session, type StoredAccount}
 import homestead/sessions
+import homestead/sign_in
 import homestead/sign_in_methods
 import homestead/tranquil.{type Problem}
 import lustre/attribute.{type Attribute}
@@ -39,9 +41,10 @@ pub opaque type Model {
     route: Route,
     page: Page,
     account: Remote(tranquil.Account),
+    other_accounts: List(StoredAccount),
     is_account_menu_open: Bool,
     is_menu_open: Bool,
-    has_signed_out: Bool,
+    departure: Option(Departure),
   )
 }
 
@@ -76,9 +79,12 @@ pub fn init(
       route:,
       page:,
       account: Loading,
+      other_accounts: list.filter(session.stored_accounts(), fn(account) {
+        account.did != session.account(session)
+      }),
       is_account_menu_open: False,
       is_menu_open: False,
-      has_signed_out: False,
+      departure: None,
     ),
     effect.batch([
       tranquil.load(session, tranquil.account(), ServerReturnedAccount),
@@ -218,10 +224,10 @@ pub fn departure(model: Model) -> Option(Departure) {
     PlaceholderPage -> None
   }
 
-  case model.has_signed_out, remote.has_ended_session(model.account), page {
-    True, _, _ -> Some(session.SignedOut)
-    False, True, _ -> Some(session.Ended)
-    False, False, departure -> departure
+  case model.departure, remote.has_ended_session(model.account), page {
+    Some(departure), _, _ -> Some(departure)
+    None, True, _ -> Some(session.Ended)
+    None, False, departure -> departure
   }
 }
 
@@ -246,16 +252,19 @@ pub opaque type Message {
   UserOpenedAccountMenu
   UserDismissedAccountMenu
   UserLeftAccountMenu
+  UserMovedInAccountMenu(to: Int)
+  UserPickedAccount(did: String)
   UserClickedSignOut
   ServerEndedSession
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message, model.page {
-    ServerReturnedAccount(result:), _ -> #(
-      Model(..model, account: remote.from_result(result)),
-      effect.none(),
-    )
+    ServerReturnedAccount(result:), _ -> {
+      let account = remote.from_result(result)
+
+      #(Model(..model, account:), remember_handle(model.session, account))
+    }
 
     OverviewProducedMessage(message), OverviewPage(page) -> {
       let #(page, effect) = overview.update(page, message)
@@ -302,7 +311,13 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
       #(
         Model(..model, page: ProfilePage(page), account:),
-        effect.map(effect, ProfileProducedMessage),
+        effect.batch([
+          effect.map(effect, ProfileProducedMessage),
+          case account == model.account {
+            True -> effect.none()
+            False -> remember_handle(model.session, account)
+          },
+        ]),
       )
     }
 
@@ -418,13 +433,23 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
         False -> #(
           Model(..model, is_account_menu_open: True),
-          browser.focus(sign_out_item),
+          browser.focus(account_menu_item(0)),
         )
       }
 
     UserOpenedAccountMenu, _ -> #(
       Model(..model, is_account_menu_open: True),
-      browser.focus(sign_out_item),
+      browser.focus(account_menu_item(0)),
+    )
+
+    UserMovedInAccountMenu(to:), _ -> #(
+      model,
+      browser.focus(account_menu_item(to)),
+    )
+
+    UserPickedAccount(did:), _ -> #(
+      Model(..model, departure: Some(session.SwitchedAccount(account: did))),
+      effect.none(),
     )
 
     UserDismissedAccountMenu, _ -> #(
@@ -443,9 +468,21 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     ServerEndedSession, _ -> #(
-      Model(..model, has_signed_out: True),
+      Model(..model, departure: Some(session.SignedOut)),
       effect.none(),
     )
+  }
+}
+
+fn remember_handle(
+  session: Session,
+  account: Remote(tranquil.Account),
+) -> Effect(Message) {
+  use _ <- effect.from
+
+  case account {
+    Loaded(value: account) -> session.remember_handle(session, account.handle)
+    Loading | Failed(_) -> Nil
   }
 }
 
@@ -464,7 +501,9 @@ const first_menu_link = "menu-first-link"
 
 const account_menu_button = "account-menu-button"
 
-const sign_out_item = "account-menu-sign-out"
+fn account_menu_item(index: Int) -> String {
+  "account-menu-item-" <> int.to_string(index)
+}
 
 pub fn view(model: Model) -> Element(Message) {
   let current_section =
@@ -567,7 +606,12 @@ fn view_top_bar(
       list.append(section_links, [admin_link]),
     ),
     case account_name {
-      Ok(name) -> view_account_menu(name, model.is_account_menu_open)
+      Ok(name) ->
+        view_account_menu(
+          name,
+          model.other_accounts,
+          model.is_account_menu_open,
+        )
       Error(Nil) -> element.none()
     },
     html.button(
@@ -653,6 +697,21 @@ fn view_menu(
       groups,
       [
         admin,
+        case model.other_accounts {
+          [] -> element.none()
+          [_, ..] as others ->
+            html.div([], [
+              html.span([], [html.text("Switch account")]),
+              ..list.map(others, fn(account) {
+                html.button([event.on_click(UserPickedAccount(account.did))], [
+                  html.text(session.account_name(account)),
+                ])
+              })
+            ])
+        },
+        html.a([attribute.href(sign_in.path)], [
+          html.text("Add another account"),
+        ]),
         html.footer([], [
           case account_name {
             Ok(name) -> html.code([], [html.text(name)])
@@ -668,8 +727,40 @@ fn view_menu(
   )
 }
 
-fn view_account_menu(name: String, is_open: Bool) -> Element(Message) {
+fn view_account_menu(
+  name: String,
+  others: List(StoredAccount),
+  is_open: Bool,
+) -> Element(Message) {
   let part = attribute.data("account-menu", "part")
+  let items =
+    list.flatten([
+      list.map(others, fn(account) {
+        fn(attributes) {
+          html.button(
+            [
+              attribute.class("handle"),
+              event.on_click(UserPickedAccount(account.did)),
+              ..attributes
+            ],
+            [html.text(session.account_name(account))],
+          )
+        }
+      }),
+      [
+        fn(attributes) {
+          html.a([attribute.href(sign_in.path), ..attributes], [
+            html.text("Add another account"),
+          ])
+        },
+        fn(attributes) {
+          html.button([event.on_click(UserClickedSignOut), ..attributes], [
+            html.text("Sign out"),
+          ])
+        },
+      ],
+    ])
+  let count = list.length(items)
 
   html.div(
     [
@@ -729,17 +820,27 @@ fn view_account_menu(name: String, is_open: Bool) -> Element(Message) {
       ),
       case is_open {
         True ->
-          html.div([attribute.id("account-menu"), attribute.role("menu")], [
-            html.button(
-              [
-                attribute.id(sign_out_item),
+          html.div(
+            [attribute.id("account-menu"), attribute.role("menu")],
+            list.index_map(items, fn(item, index) {
+              item([
+                attribute.id(account_menu_item(index)),
                 part,
                 attribute.role("menuitem"),
-                event.on_click(UserClickedSignOut),
-              ],
-              [html.text("Sign out")],
-            ),
-          ])
+                on_key(fn(key) {
+                  case key {
+                    "ArrowDown" ->
+                      Ok(UserMovedInAccountMenu(to: { index + 1 } % count))
+                    "ArrowUp" ->
+                      Ok(UserMovedInAccountMenu(
+                        to: { index + count - 1 } % count,
+                      ))
+                    _ -> Error(Nil)
+                  }
+                }),
+              ])
+            }),
+          )
         False -> element.none()
       },
     ],

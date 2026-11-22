@@ -15,7 +15,7 @@ import gleam/string
 import gleam/uri.{type Uri}
 import homestead/identity
 import homestead/landing
-import homestead/session
+import homestead/session.{type StoredAccount}
 import homestead/tern.{type Actor}
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
 import lustre/attribute.{type Attribute}
@@ -26,9 +26,14 @@ import lustre/event
 import modem
 import rsvp
 
+pub const path = "/sign-in"
+
 pub opaque type Model {
   Model(
     directory: Uri,
+    accounts: List(StoredAccount),
+    removing: List(String),
+    chosen_account: Option(String),
     identifier: String,
     suggestions: Suggestions,
     lookup: Lookup,
@@ -59,9 +64,12 @@ type Problem {
   SessionEnded
 }
 
-pub fn init(directory: Uri) -> Model {
+pub fn init(directory: Uri, accounts: List(StoredAccount)) -> Model {
   Model(
     directory:,
+    accounts:,
+    removing: [],
+    chosen_account: None,
     identifier: "",
     suggestions: Hidden(actors: []),
     lookup: NotStarted,
@@ -76,7 +84,14 @@ pub fn report_ended_session(model: Model) -> Model {
   Model(..model, lookup: Failed(SessionEnded))
 }
 
+pub fn chosen_account(model: Model) -> Option(String) {
+  model.chosen_account
+}
+
 pub opaque type Message {
+  UserPickedAccount(did: String)
+  UserSignedOutAccount(did: String)
+  BrowserRemovedAccount(did: String)
   UserTypedIdentifier(identifier: String)
   UserPausedTyping(query: String)
   UserPressedArrow(direction: Direction)
@@ -113,6 +128,18 @@ fn update_while_idle(
   message: Message,
 ) -> #(Model, Effect(Message)) {
   case message {
+    UserPickedAccount(did:) -> #(
+      Model(..model, chosen_account: Some(did)),
+      effect.none(),
+    )
+
+    UserSignedOutAccount(did:) -> #(
+      Model(..model, removing: [did, ..model.removing]),
+      remove_account(did),
+    )
+
+    BrowserRemovedAccount(did:) -> #(without_account(model, did), effect.none())
+
     UserTypedIdentifier(identifier:) -> {
       let model = Model(..model, identifier:, lookup: NotStarted)
 
@@ -260,7 +287,11 @@ fn update_while_looking(
       effect.none(),
     )
 
-    UserTypedIdentifier(..)
+    BrowserRemovedAccount(did:) -> #(without_account(model, did), effect.none())
+
+    UserPickedAccount(..)
+    | UserSignedOutAccount(..)
+    | UserTypedIdentifier(..)
     | UserPausedTyping(..)
     | UserPressedArrow(..)
     | UserDismissedSuggestions
@@ -268,6 +299,23 @@ fn update_while_looking(
     | UserSubmittedForm(..)
     | TernReturnedActors(..) -> #(model, effect.none())
   }
+}
+
+fn without_account(model: Model, did: String) -> Model {
+  Model(
+    ..model,
+    accounts: list.filter(model.accounts, fn(account) { account.did != did }),
+    removing: list.filter(model.removing, fn(removing) { removing != did }),
+  )
+}
+
+fn remove_account(did: String) -> Effect(Message) {
+  use dispatch <- effect.from
+
+  session.remove(did)
+  |> promise.tap(fn(_) { dispatch(BrowserRemovedAccount(did)) })
+
+  Nil
 }
 
 fn is_being_typed(model: Model, query: String) -> Bool {
@@ -368,12 +416,49 @@ fn prepare_sign_in(did: Did) -> Effect(Message) {
 pub fn view(model: Model) -> Element(Message) {
   landing.view([
     html.h2([], [html.text("Sign in")]),
+    view_accounts(model),
     view_form(model),
     html.a([attribute.class("create-account"), attribute.href("/sign-up")], [
       html.text("No account yet? Create one"),
     ]),
     view_lookup(model.lookup),
   ])
+}
+
+fn view_accounts(model: Model) -> Element(Message) {
+  case model.accounts {
+    [] -> element.none()
+    [_, ..] ->
+      html.ul(
+        [attribute.class("accounts"), attribute.aria_label("Signed in")],
+        list.map(model.accounts, fn(account) {
+          let name = session.account_name(account)
+          let is_busy =
+            model.lookup == Looking
+            || list.contains(model.removing, account.did)
+
+          html.li([], [
+            html.button(
+              [
+                attribute.class("account"),
+                attribute.disabled(is_busy),
+                event.on_click(UserPickedAccount(account.did)),
+              ],
+              [html.text(name)],
+            ),
+            html.button(
+              [
+                attribute.class("action"),
+                attribute.aria_label("Sign out " <> name),
+                attribute.disabled(is_busy),
+                event.on_click(UserSignedOutAccount(account.did)),
+              ],
+              [html.text("Sign out")],
+            ),
+          ])
+        }),
+      )
+  }
 }
 
 fn view_form(model: Model) -> Element(Message) {
