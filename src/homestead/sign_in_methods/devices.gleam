@@ -195,7 +195,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
         case model.devices {
           Loading -> []
           Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
+          Loaded(value: []) -> [layout.note("No remembered devices", [])]
           Loaded(value: devices) -> list.map(devices, view_device(_, model))
         },
         case model.action {

@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre/attribute.{type Attribute}
 import lustre/element.{type Element}
@@ -75,6 +76,35 @@ pub fn linked_row(
   ])
 }
 
+pub fn copy_row(
+  name name: String,
+  value value: String,
+  note note: Option(String),
+  on_copy on_copy: message,
+) -> Element(message) {
+  row(
+    tone: Plain,
+    name:,
+    details: [
+      html.code([attribute.class("long")], [html.text(value)]),
+      case note {
+        Some(note) -> dim(" " <> note)
+        None -> element.none()
+      },
+    ],
+    actions: [
+      html.button(
+        [
+          attribute.class("action"),
+          attribute.type_("button"),
+          event.on_click(on_copy),
+        ],
+        [html.text("Copy")],
+      ),
+    ],
+  )
+}
+
 pub fn wide_row(content: List(Element(message))) -> Element(message) {
   html.div([attribute.class("row wide")], [
     html.span([attribute.class("details")], content),
@@ -95,6 +125,25 @@ pub fn hint(
     html.span([attribute.class("details")], details),
     html.div([attribute.class("actions")], actions),
   ])
+}
+
+pub fn note(text: String, actions: List(Element(message))) -> Element(message) {
+  html.div([attribute.class("row note")], [
+    html.span([attribute.class("details")], [html.text(text)]),
+    html.div([attribute.class("actions")], actions),
+  ])
+}
+
+pub fn listing(
+  empty empty: String,
+  rows rows: List(Element(message)),
+  actions actions: List(Element(message)),
+) -> List(Element(message)) {
+  case rows, actions {
+    [], _ -> [note(empty, actions)]
+    [_, ..], [] -> rows
+    [_, ..], [_, ..] -> list.append(rows, [actions_row(actions)])
+  }
 }
 
 pub fn actions_row(actions: List(Element(message))) -> Element(message) {

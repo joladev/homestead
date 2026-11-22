@@ -143,7 +143,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
         case model.accounts {
           Loading -> []
           Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
+          Loaded(value: []) -> [layout.note("No linked accounts", [])]
           Loaded(value: accounts) -> list.map(accounts, view_account(_, model))
         },
         case model.action {
@@ -151,14 +151,11 @@ pub fn view(model: Model) -> List(Element(Message)) {
           Resting | ConfirmingUnlink(_) | Unlinking -> []
         },
         [
-          layout.hint(
-            details: [layout.dim("Accounts are linked on " <> server)],
-            actions: [
-              html.a([attribute.href("https://" <> server <> "/app/security")], [
-                html.text("Open " <> server),
-              ]),
-            ],
-          ),
+          layout.note("Accounts are linked on " <> server, [
+            html.a([attribute.href("https://" <> server <> "/app/security")], [
+              html.text("Open " <> server),
+            ]),
+          ]),
         ],
       ]),
     ),

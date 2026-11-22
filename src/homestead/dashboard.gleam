@@ -3,12 +3,14 @@ import gleam/dynamic/decode
 import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/uri.{type Uri}
 import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
 import homestead/delegation
 import homestead/delete_account
 import homestead/export
+import homestead/identity_document
 import homestead/notifications
 import homestead/overview
 import homestead/profile
@@ -32,6 +34,7 @@ import lustre/event
 pub opaque type Model {
   Model(
     session: Session,
+    directory: Uri,
     route: Route,
     page: Page,
     account: Remote(tranquil.Account),
@@ -53,15 +56,21 @@ type Page {
   DeleteAccountPage(delete_account.Model)
   RepositoryPage(repository.Model)
   DelegationPage(delegation.Model)
+  IdentityDocumentPage(identity_document.Model)
   PlaceholderPage
 }
 
-pub fn init(session: Session, route: Route) -> #(Model, Effect(Message)) {
-  let #(page, effect) = open(session, route)
+pub fn init(
+  session: Session,
+  directory: Uri,
+  route: Route,
+) -> #(Model, Effect(Message)) {
+  let #(page, effect) = open(session, directory, route)
 
   #(
     Model(
       session:,
+      directory:,
       route:,
       page:,
       account: Loading,
@@ -81,12 +90,16 @@ pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
     Model(..model, is_menu_open: False),
     effect.none(),
   ))
-  let #(page, effect) = open(model.session, route)
+  let #(page, effect) = open(model.session, model.directory, route)
 
   #(Model(..model, route:, page:, is_menu_open: False), effect)
 }
 
-fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
+fn open(
+  session: Session,
+  directory: Uri,
+  route: Route,
+) -> #(Page, Effect(Message)) {
   case route {
     Overview -> {
       let #(page, effect) = overview.init(session)
@@ -166,10 +179,16 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       #(DelegationPage(page), effect.map(effect, DelegationProducedMessage))
     }
 
-    Advanced(route.IdentityDocument) | Admin | NotFound(_) -> #(
-      PlaceholderPage,
-      effect.none(),
-    )
+    Advanced(route.IdentityDocument) -> {
+      let #(page, effect) = identity_document.init(session, directory)
+
+      #(
+        IdentityDocumentPage(page),
+        effect.map(effect, IdentityDocumentProducedMessage),
+      )
+    }
+
+    Admin | NotFound(_) -> #(PlaceholderPage, effect.none())
   }
 }
 
@@ -186,6 +205,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     DeleteAccountPage(page) -> delete_account.departure(page)
     RepositoryPage(page) -> repository.departure(page)
     DelegationPage(page) -> delegation.departure(page)
+    IdentityDocumentPage(page) -> identity_document.departure(page)
     PlaceholderPage -> None
   }
 
@@ -209,6 +229,7 @@ pub opaque type Message {
   DeleteAccountProducedMessage(delete_account.Message)
   RepositoryProducedMessage(repository.Message)
   DelegationProducedMessage(delegation.Message)
+  IdentityDocumentProducedMessage(identity_document.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -329,8 +350,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    IdentityDocumentProducedMessage(message), IdentityDocumentPage(page) -> {
+      let #(page, effect) = identity_document.update(page, message)
+
+      #(
+        Model(..model, page: IdentityDocumentPage(page)),
+        effect.map(effect, IdentityDocumentProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | IdentityDocumentProducedMessage(_), _
     | DelegationProducedMessage(_), _
     | RepositoryProducedMessage(_), _
     | DeleteAccountProducedMessage(_), _
@@ -459,6 +490,10 @@ pub fn view(model: Model) -> Element(Message) {
 
       DelegationPage(page) ->
         delegation.view(page) |> element.map(DelegationProducedMessage)
+
+      IdentityDocumentPage(page) ->
+        identity_document.view(page)
+        |> element.map(IdentityDocumentProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

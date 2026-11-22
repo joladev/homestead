@@ -226,7 +226,7 @@ pub fn view(model: Model) -> Element(Message) {
       layout.block(case model.messages {
         Loading -> []
         Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: []) -> [layout.details_row([layout.dim("None sent")])]
+        Loaded(value: []) -> [layout.note("No messages", [])]
         Loaded(value: messages) ->
           list.index_map(messages, fn(message, index) {
             view_message(model, message, index)

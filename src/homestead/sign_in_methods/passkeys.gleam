@@ -247,7 +247,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
         case model.passkeys {
           Loading -> []
           Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
+          Loaded(value: []) -> [layout.note("No passkeys", [])]
           Loaded(value: passkeys) -> list.map(passkeys, view_passkey(_, model))
         },
         case model.action {
@@ -259,14 +259,11 @@ pub fn view(model: Model) -> List(Element(Message)) {
           | SigningInAgain(..) -> []
         },
         [
-          layout.hint(
-            details: [layout.dim("Passkeys are added on " <> server)],
-            actions: [
-              html.a([attribute.href("https://" <> server <> "/app/security")], [
-                html.text("Open " <> server),
-              ]),
-            ],
-          ),
+          layout.note("Passkeys are added on " <> server, [
+            html.a([attribute.href("https://" <> server <> "/app/security")], [
+              html.text("Open " <> server),
+            ]),
+          ]),
         ],
       ]),
     ),

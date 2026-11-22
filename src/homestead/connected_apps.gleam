@@ -160,7 +160,7 @@ pub fn view(model: Model) -> Element(Message) {
 
       Remembered(apps: Loaded(value: [])) ->
         layout.section("remembered", [
-          layout.block([layout.details_row([layout.dim("none")])]),
+          layout.block([layout.note("No remembered apps", [])]),
         ])
 
       Remembered(apps: Loaded(value: apps)) ->

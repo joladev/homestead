@@ -1,4 +1,3 @@
-import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/int
@@ -10,6 +9,7 @@ import gleam/result
 import gleam/string
 import gleam/time/timestamp.{type Timestamp}
 import gleam/uri.{type Uri}
+import homestead/json_text
 import homestead/session.{type Session}
 import lustre/effect.{type Effect}
 import rsvp
@@ -508,16 +508,10 @@ fn record_decoder() -> Decoder(RepoRecord) {
     key: string.split(address, "/") |> list.last |> result.unwrap(""),
     address:,
     content_id:,
-    json: pretty(value),
-    preview: compact(value),
+    json: json_text.pretty(value),
+    preview: json_text.compact(value),
   ))
 }
-
-@external(javascript, "./tranquil_ffi.mjs", "pretty")
-fn pretty(value: Dynamic) -> String
-
-@external(javascript, "./tranquil_ffi.mjs", "compact")
-fn compact(value: Dynamic) -> String
 
 pub fn passkeys() -> Query(List(Passkey)) {
   query(

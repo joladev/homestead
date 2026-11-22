@@ -497,13 +497,15 @@ fn view_collections(collections: Remote(List(String))) -> Element(Message) {
       case collections {
         Loading -> []
         Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
         Loaded(value: collections) ->
-          list.map(collections, fn(collection) {
-            layout.wide_row([link(Records(collection:), collection)])
-          })
+          layout.listing(
+            empty: "No collections",
+            rows: list.map(collections, fn(collection) {
+              layout.wide_row([link(Records(collection:), collection)])
+            }),
+            actions: [view_new_link("")],
+          )
       },
-      [layout.actions_row([view_new_link("")])],
     ]),
   )
 }
@@ -519,43 +521,43 @@ fn view_records(
       case records {
         Loading -> []
         Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
         Loaded(value: records) ->
-          list.map(records, fn(record) {
-            layout.linked_row(
-              to: route.href(
-                Data(Repository(Record(collection:, key: record.key))),
-              ),
-              name: record.key,
-              details: [
-                html.span([attribute.class("preview")], [
-                  html.text(string.slice(record.preview, 0, 200)),
-                ]),
-              ],
-            )
-          })
+          layout.listing(
+            empty: "No records",
+            rows: list.map(records, fn(record) {
+              layout.linked_row(
+                to: route.href(
+                  Data(Repository(Record(collection:, key: record.key))),
+                ),
+                name: record.key,
+                details: [
+                  html.span([attribute.class("preview")], [
+                    html.text(string.slice(record.preview, 0, 200)),
+                  ]),
+                ],
+              )
+            }),
+            actions: [
+              case next {
+                Some(after) ->
+                  html.button(
+                    [
+                      attribute.class("action"),
+                      attribute.disabled(more == LoadingMore),
+                      event.on_click(UserClickedMore(after)),
+                    ],
+                    [html.text("More")],
+                  )
+                None -> element.none()
+              },
+              view_new_link(collection),
+            ],
+          )
       },
       case more {
         MoreRefused(_) -> [layout.problem("Couldn't load more")]
         NotLoadingMore | LoadingMore -> []
       },
-      [
-        layout.actions_row([
-          case next {
-            Some(after) ->
-              html.button(
-                [
-                  attribute.class("action"),
-                  attribute.disabled(more == LoadingMore),
-                  event.on_click(UserClickedMore(after)),
-                ],
-                [html.text("More")],
-              )
-            None -> element.none()
-          },
-          view_new_link(collection),
-        ]),
-      ],
     ]),
   )
 }
@@ -641,27 +643,15 @@ fn view_copyable(
   kind: Copied,
   copied: Copied,
 ) -> Element(Message) {
-  layout.row(
-    tone: layout.Plain,
+  layout.copy_row(
     name:,
-    details: [
-      html.code([attribute.class("long")], [html.text(value)]),
-      case copied {
-        CopyFailed -> layout.dim(" couldn't copy")
-        copied if copied == kind -> layout.dim(" copied")
-        NothingCopied | CopiedAddress | CopiedContentId -> element.none()
-      },
-    ],
-    actions: [
-      html.button(
-        [
-          attribute.class("action"),
-          attribute.type_("button"),
-          event.on_click(UserClickedCopy(value, kind)),
-        ],
-        [html.text("Copy")],
-      ),
-    ],
+    value:,
+    note: case copied {
+      CopyFailed -> Some("couldn't copy")
+      copied if copied == kind -> Some("copied")
+      NothingCopied | CopiedAddress | CopiedContentId -> None
+    },
+    on_copy: UserClickedCopy(value, kind),
   )
 }
 

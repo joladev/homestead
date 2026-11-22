@@ -286,53 +286,55 @@ pub fn view(
   levels: Remote(List(AccessLevel)),
   controls_accounts: Bool,
 ) -> List(Element(Message)) {
+  let actions = case model.action, controls_accounts {
+    Adding(..), _ | _, True -> []
+    Resting, False
+    | ConfirmingRemove(_), False
+    | Removing, False
+    | Refused(_), False
+    -> [
+      html.button(
+        [
+          attribute.id(add_button_id),
+          attribute.class("action"),
+          event.on_click(UserClickedAdd),
+        ],
+        [html.text("Add controller")],
+      ),
+    ]
+  }
+
   [
     layout.block(
       list.flatten([
         case model.controllers {
           Loading -> []
           Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
           Loaded(value: controllers) ->
-            list.map(controllers, view_controller(_, model, levels))
+            layout.listing(
+              empty: "No controllers",
+              rows: list.map(controllers, view_controller(_, model, levels)),
+              actions:,
+            )
         },
         case model.action, controls_accounts {
           Adding(identifier:, lookup:, level:, is_adding:), _ ->
             view_form(identifier, lookup, level, is_adding, levels)
 
-          Refused(problem:), _ -> [
-            layout.problem(describe_refusal(problem)),
-            view_add_button(),
-          ]
+          Refused(problem:), _ -> [layout.problem(describe_refusal(problem))]
 
           Resting, True | ConfirmingRemove(_), True | Removing, True -> [
-            layout.details_row([
-              layout.dim(
-                "This account controls other accounts, so it cannot have controllers",
-              ),
-            ]),
+            layout.note(
+              "This account controls other accounts, so it cannot have controllers",
+              [],
+            ),
           ]
 
-          Resting, False | ConfirmingRemove(_), False | Removing, False -> [
-            view_add_button(),
-          ]
+          Resting, False | ConfirmingRemove(_), False | Removing, False -> []
         },
       ]),
     ),
   ]
-}
-
-fn view_add_button() -> Element(Message) {
-  layout.actions_row([
-    html.button(
-      [
-        attribute.id(add_button_id),
-        attribute.class("action"),
-        event.on_click(UserClickedAdd),
-      ],
-      [html.text("Add controller")],
-    ),
-  ])
 }
 
 fn view_controller(

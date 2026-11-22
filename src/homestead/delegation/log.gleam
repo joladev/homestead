@@ -112,7 +112,7 @@ pub fn view(
     layout.block(case model.entries {
       Loading -> []
       Failed(_) -> [layout.problem("Couldn't load")]
-      Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
+      Loaded(value: []) -> [layout.note("No entries", [])]
       Loaded(value: entries) ->
         list.flatten([
           list.map(entries, fn(entry) {

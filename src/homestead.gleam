@@ -95,7 +95,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     Restoring(location:), BrowserRestoredSession(result: Ok(session)) ->
-      open_dashboard(model, dashboard.init(session, route.from_uri(location)))
+      open_dashboard(
+        model,
+        dashboard.init(session, model.directory, route.from_uri(location)),
+      )
 
     Restoring(_), BrowserRestoredSession(result: Error(session.NothingStored))
     -> #(Model(..model, state: SignedOut(sign_in:)), effect.none())
@@ -107,7 +110,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     CompletingSignIn, ServerIssuedSession(result: Ok(session)) -> {
       let #(model, effect) =
-        open_dashboard(model, dashboard.init(session, Overview))
+        open_dashboard(
+          model,
+          dashboard.init(session, model.directory, Overview),
+        )
 
       #(model, effect.batch([show_overview(), effect]))
     }

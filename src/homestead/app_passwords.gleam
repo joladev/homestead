@@ -206,7 +206,7 @@ pub fn view(model: Model) -> Element(Message) {
           case model.passwords {
             Loading -> []
             Failed(_) -> [layout.problem("Couldn't load")]
-            Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
+            Loaded(value: []) -> [layout.note("No app passwords", [])]
             Loaded(value: passwords) ->
               list.map(passwords, view_password(_, model))
           },

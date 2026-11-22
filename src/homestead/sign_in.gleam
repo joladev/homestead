@@ -13,6 +13,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri}
+import homestead/identity
 import homestead/session
 import homestead/tern.{type Actor}
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
@@ -341,18 +342,10 @@ fn resolve_handle(handle: Handle) -> Effect(Message) {
 }
 
 fn fetch_document(directory: Uri, did: Did) -> Effect(Message) {
-  let request = case did.method(did) {
-    did.Plc -> {
-      let assert Ok(request) = request.from_uri(directory)
-
-      request
-      |> request.set_path("/" <> did.to_string(did))
-      |> request.set_header("accept", "application/json")
-    }
-    did.Web -> did.document_request(did)
-  }
-
-  rsvp.send(request, rsvp.expect_ok_response(DirectoryReturnedDocument(did, _)))
+  rsvp.send(
+    identity.document_request(directory, did),
+    rsvp.expect_ok_response(DirectoryReturnedDocument(did, _)),
+  )
 }
 
 fn check_health(did: Did, request: Request(String)) -> Effect(Message) {

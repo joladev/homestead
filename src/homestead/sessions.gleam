@@ -174,7 +174,15 @@ pub fn view_list(model: Model) -> Element(Message) {
       layout.block(
         list.flatten([
           case listed {
-            [] -> [layout.details_row([layout.dim("none")])]
+            [] -> [
+              layout.note(
+                case model.filter {
+                  Everything -> "No sessions"
+                  ThroughApps -> "No connected apps"
+                },
+                [],
+              ),
+            ]
             [_, ..] -> list.map(listed, view_session(_, model))
           },
           case model.filter, listed, model.action {

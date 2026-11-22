@@ -264,29 +264,48 @@ pub fn view(
   levels: Remote(List(AccessLevel)),
   has_controllers: Bool,
 ) -> List(Element(Message)) {
+  let actions = case model.action, has_controllers {
+    Creating(..), _ | _, True -> []
+    Resting, False
+    | ConfirmingDelete(_), False
+    | Deleting, False
+    | StartingToActAs, False
+    | ActAsRefused, False
+    | Refused(_), False
+    -> [
+      html.button(
+        [
+          attribute.id(new_button_id),
+          attribute.class("action"),
+          event.on_click(UserClickedNew),
+        ],
+        [html.text("New account")],
+      ),
+    ]
+  }
+
   [
     layout.block(
       list.flatten([
         case model.accounts {
           Loading -> []
           Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.details_row([layout.dim("none")])]
           Loaded(value: accounts) ->
-            list.map(accounts, view_account(_, model, levels))
+            layout.listing(
+              empty: "No controlled accounts",
+              rows: list.map(accounts, view_account(_, model, levels)),
+              actions:,
+            )
         },
         case model.action, has_controllers {
           Creating(handle:, email:, level:, submission:), _ -> [
             view_form(handle, email, level, submission, levels),
           ]
 
-          Refused(problem:), _ -> [
-            layout.problem(describe_refusal(problem)),
-            view_new_button(),
-          ]
+          Refused(problem:), _ -> [layout.problem(describe_refusal(problem))]
 
           ActAsRefused, _ -> [
             layout.problem("Couldn't sign in as that account"),
-            view_new_button(),
           ]
 
           Resting, True
@@ -294,35 +313,21 @@ pub fn view(
           | Deleting, True
           | StartingToActAs, True
           -> [
-            layout.details_row([
-              layout.dim(
-                "This account has controllers, so it cannot control other accounts",
-              ),
-            ]),
+            layout.note(
+              "This account has controllers, so it cannot control other accounts",
+              [],
+            ),
           ]
 
           Resting, False
           | ConfirmingDelete(_), False
           | Deleting, False
           | StartingToActAs, False
-          -> [view_new_button()]
+          -> []
         },
       ]),
     ),
   ]
-}
-
-fn view_new_button() -> Element(Message) {
-  layout.actions_row([
-    html.button(
-      [
-        attribute.id(new_button_id),
-        attribute.class("action"),
-        event.on_click(UserClickedNew),
-      ],
-      [html.text("New account")],
-    ),
-  ])
 }
 
 fn view_account(
