@@ -3,11 +3,17 @@ import at/did_document
 import at/handle
 import gleam/dynamic/decode
 import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
+import gleam/time/calendar
+import gleam/time/duration.{type Duration}
 import gleam/uri.{type Uri}
 import homestead/browser
+import homestead/date
 import homestead/identity
+import homestead/identity_history.{type Change, type Event}
 import homestead/json_text
 import homestead/json_view
 import homestead/layout
@@ -22,7 +28,18 @@ import lustre/event
 import rsvp
 
 pub opaque type Model {
-  Model(account: String, identity: Remote(Identity), copied: Copied)
+  Model(
+    account: String,
+    local_offset: Duration,
+    identity: Remote(Identity),
+    history: History,
+    copied: Copied,
+  )
+}
+
+type History {
+  NotRecorded
+  Recorded(log: Remote(identity_history.History))
 }
 
 pub type Identity {
@@ -45,23 +62,59 @@ type Copied {
 pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
   let account = session.account(session)
 
+  let local_offset = calendar.local_offset()
+
   case did.from_string(account) {
-    Ok(did) -> #(
-      Model(account:, identity: Loading, copied: NothingCopied),
-      rsvp.send(
-        identity.document_request(directory, did),
-        rsvp.expect_ok_response(fn(response) {
-          DirectoryReturnedDocument(
-            result.replace_error(response, tranquil.Unreachable)
-            |> result.try(fn(response) { read(response.body) }),
-          )
-        }),
-      ),
-    )
+    Ok(did) -> {
+      let #(history, load_history) = case
+        identity.history_request(directory, did)
+      {
+        Ok(request) -> #(
+          Recorded(log: Loading),
+          rsvp.send(
+            request,
+            rsvp.expect_ok_response(fn(response) {
+              DirectoryReturnedHistory(
+                result.replace_error(response, tranquil.Unreachable)
+                |> result.try(fn(response) {
+                  identity_history.read(response.body)
+                  |> result.replace_error(tranquil.NotUnderstood)
+                }),
+              )
+            }),
+          ),
+        )
+        Error(Nil) -> #(NotRecorded, effect.none())
+      }
+
+      #(
+        Model(
+          account:,
+          local_offset:,
+          identity: Loading,
+          history:,
+          copied: NothingCopied,
+        ),
+        effect.batch([
+          rsvp.send(
+            identity.document_request(directory, did),
+            rsvp.expect_ok_response(fn(response) {
+              DirectoryReturnedDocument(
+                result.replace_error(response, tranquil.Unreachable)
+                |> result.try(fn(response) { read(response.body) }),
+              )
+            }),
+          ),
+          load_history,
+        ]),
+      )
+    }
     Error(_) -> #(
       Model(
         account:,
+        local_offset:,
         identity: Failed(tranquil.NotUnderstood),
+        history: NotRecorded,
         copied: NothingCopied,
       ),
       effect.none(),
@@ -75,6 +128,7 @@ pub fn departure(_model: Model) -> Option(Departure) {
 
 pub opaque type Message {
   DirectoryReturnedDocument(result: Result(Identity, Problem))
+  DirectoryReturnedHistory(result: Result(identity_history.History, Problem))
   UserClickedCopy(text: String, copied: Copied)
   BrowserCopiedText(copied: Copied, result: Result(Nil, Nil))
 }
@@ -83,6 +137,11 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     DirectoryReturnedDocument(result:) -> #(
       Model(..model, identity: remote.from_result(result)),
+      effect.none(),
+    )
+
+    DirectoryReturnedHistory(result:) -> #(
+      Model(..model, history: Recorded(log: remote.from_result(result))),
       effect.none(),
     )
 
@@ -172,6 +231,27 @@ pub fn view(model: Model) -> Element(Message) {
               )
             None -> plain("Signing key", None)
           },
+          case model.history {
+            Recorded(log: Loaded(value: history)) ->
+              layout.row(
+                tone: layout.Plain,
+                name: "Rotation keys",
+                details: case history.rotation_keys {
+                  [] -> [layout.dim("none")]
+                  [_, ..] as keys -> [
+                    html.span(
+                      [attribute.class("lines")],
+                      list.map(keys, fn(key) {
+                        html.code([attribute.class("long")], [html.text(key)])
+                      }),
+                    ),
+                  ]
+                },
+                actions: [],
+              )
+            NotRecorded | Recorded(log: Loading) | Recorded(log: Failed(_)) ->
+              element.none()
+          },
         ]),
       ]),
       layout.section("document", [
@@ -194,6 +274,84 @@ pub fn view(model: Model) -> Element(Message) {
           ]),
         ]),
       ]),
+      layout.section("history", [
+        layout.block(case model.history {
+          NotRecorded -> [
+            layout.note("did:web identities have no recorded history", []),
+          ]
+          Recorded(log: Loading) -> []
+          Recorded(log: Failed(_)) -> [layout.problem("Couldn't load")]
+          Recorded(log: Loaded(value: history)) ->
+            list.map(history.events, view_event(_, model.local_offset))
+        }),
+      ]),
     ]
   })
+}
+
+fn view_event(event: Event, local_offset: Duration) -> Element(message) {
+  let changes =
+    list.map(event.changes, fn(change) { html.span([], view_change(change)) })
+
+  layout.row(
+    tone: layout.Plain,
+    name: date.describe_moment_with_year(event.at, local_offset),
+    details: [
+      html.span(
+        [
+          attribute.classes([
+            #("lines", True),
+            #("dim", event.is_cancelled),
+          ]),
+        ],
+        case event.is_cancelled {
+          True -> [html.span([], [html.text("Cancelled")]), ..changes]
+          False -> changes
+        },
+      ),
+    ],
+    actions: [],
+  )
+}
+
+fn view_change(change: Change) -> List(Element(message)) {
+  let key = fn(key: String) {
+    html.code([attribute.class("long")], [html.text(key)])
+  }
+
+  case change {
+    identity_history.Created(handle:, server:) -> [
+      html.text(string.join(
+        list.flatten([
+          ["Created"],
+          option.map(handle, fn(handle) { ["handle " <> handle] })
+            |> option.unwrap([]),
+          option.map(server, fn(server) { ["server " <> server] })
+            |> option.unwrap([]),
+        ]),
+        " \u{00B7} ",
+      )),
+    ]
+    identity_history.HandleChanged(to: Some(handle)) -> [
+      html.text("Handle changed to " <> handle),
+    ]
+    identity_history.HandleChanged(to: None) -> [html.text("Handle removed")]
+    identity_history.ServerChanged(to: Some(server)) -> [
+      html.text("Server changed to " <> server),
+    ]
+    identity_history.ServerChanged(to: None) -> [html.text("Server removed")]
+    identity_history.SigningKeyChanged -> [html.text("Signing key changed")]
+    identity_history.RotationKeyAdded(key: added) -> [
+      html.text("Rotation key added "),
+      key(added),
+    ]
+    identity_history.RotationKeyRemoved(key: removed) -> [
+      html.text("Rotation key removed "),
+      key(removed),
+    ]
+    identity_history.Deleted -> [html.text("Identity deleted")]
+    identity_history.OtherDetailsChanged -> [
+      html.text("Other details changed"),
+    ]
+  }
 }

@@ -10,6 +10,7 @@ import gleam/string
 import gleam/time/timestamp.{type Timestamp}
 import gleam/uri.{type Uri}
 import homestead/browser.{type File}
+import homestead/date
 import homestead/json_text
 import homestead/session.{type Session}
 import lustre/effect.{type Effect}
@@ -328,7 +329,7 @@ pub fn sent_messages() -> Query(List(SentMessage)) {
     decode.at(
       ["notifications"],
       decode.list({
-        use sent <- decode.field("createdAt", timestamp_decoder())
+        use sent <- decode.field("createdAt", date.decoder())
         use channel <- decode.field("channel", decode.string)
         use kind <- decode.field("commsType", decode.string)
         use status <- decode.field("status", decode.string)
@@ -441,7 +442,7 @@ pub fn find_accounts(
           use did <- decode.field("did", decode.string)
           use handle <- decode.field("handle", decode.string)
           use email <- optional_text("email")
-          use since <- decode.field("indexedAt", timestamp_decoder())
+          use since <- decode.field("indexedAt", date.decoder())
           use verified <- optional_text("emailConfirmedAt")
           use deactivated <- optional_text("deactivatedAt")
           use invites_disabled <- decode.optional_field(
@@ -491,7 +492,7 @@ pub fn invite_codes() -> Query(List(InviteCode)) {
         use code <- decode.field("code", decode.string)
         use available <- decode.field("available", decode.int)
         use is_disabled <- decode.field("disabled", decode.bool)
-        use created <- decode.field("createdAt", timestamp_decoder())
+        use created <- decode.field("createdAt", date.decoder())
         use used_by <- decode.field(
           "uses",
           decode.list({
@@ -554,7 +555,7 @@ pub fn controllers() -> Query(List(Controller)) {
         use did <- decode.field("did", decode.string)
         use handle <- optional_text("handle")
         use access <- decode.field("grantedScopes", decode.string)
-        use since <- decode.field("grantedAt", timestamp_decoder())
+        use since <- decode.field("grantedAt", date.decoder())
         use is_active <- decode.field("isActive", decode.bool)
         use is_local <- decode.field("isLocal", decode.bool)
 
@@ -581,7 +582,7 @@ pub fn controlled_accounts() -> Query(List(ControlledAccount)) {
         use did <- decode.field("did", decode.string)
         use handle <- optional_text("handle")
         use access <- decode.field("grantedScopes", decode.string)
-        use since <- decode.field("grantedAt", timestamp_decoder())
+        use since <- decode.field("grantedAt", date.decoder())
 
         decode.success(ControlledAccount(did:, handle:, access:, since:))
       }),
@@ -628,7 +629,7 @@ pub fn delegation_log(offset: Int) -> Query(LogPage) {
           use id <- decode.field("id", decode.string)
           use actor <- decode.field("actorDid", decode.string)
           use action <- decode.field("actionType", decode.string)
-          use at <- decode.field("createdAt", timestamp_decoder())
+          use at <- decode.field("createdAt", date.decoder())
 
           decode.success(LogEntry(id:, actor:, action:, at:))
         }),
@@ -704,10 +705,10 @@ pub fn passkeys() -> Query(List(Passkey)) {
       decode.list({
         use id <- decode.field("id", decode.string)
         use name <- decode.field("friendlyName", decode.optional(decode.string))
-        use created <- decode.field("createdAt", timestamp_decoder())
+        use created <- decode.field("createdAt", date.decoder())
         use last_used <- decode.field(
           "lastUsed",
-          decode.optional(timestamp_decoder()),
+          decode.optional(date.decoder()),
         )
 
         decode.success(Passkey(id:, name:, created:, last_used:))
@@ -756,7 +757,7 @@ pub fn linked_accounts() -> Query(List(LinkedAccount)) {
         use provider <- decode.field("provider_name", decode.string)
         use username <- optional_text("provider_username")
         use email <- optional_text("provider_email")
-        use linked <- decode.field("created_at", timestamp_decoder())
+        use linked <- decode.field("created_at", date.decoder())
 
         decode.success(LinkedAccount(id:, provider:, username:, email:, linked:))
       }),
@@ -783,11 +784,8 @@ pub fn remembered_devices() -> Query(List(RememberedDevice)) {
         use id <- decode.field("id", decode.string)
         use name <- optional_text("friendlyName")
         use user_agent <- optional_text("userAgent")
-        use remembered_until <- decode.field(
-          "trustedUntil",
-          timestamp_decoder(),
-        )
-        use last_seen <- decode.field("lastSeenAt", timestamp_decoder())
+        use remembered_until <- decode.field("trustedUntil", date.decoder())
+        use last_seen <- decode.field("lastSeenAt", date.decoder())
 
         decode.success(RememberedDevice(
           id:,
@@ -817,8 +815,8 @@ pub fn sessions() -> Query(List(ActiveSession)) {
       decode.list({
         use id <- decode.field("id", decode.string)
         use app <- decode.field("clientName", decode.optional(decode.string))
-        use created <- decode.field("createdAt", timestamp_decoder())
-        use expires <- decode.field("expiresAt", timestamp_decoder())
+        use created <- decode.field("createdAt", date.decoder())
+        use expires <- decode.field("expiresAt", date.decoder())
         use is_current <- decode.field("isCurrent", decode.bool)
 
         decode.success(ActiveSession(id:, app:, created:, expires:, is_current:))
@@ -849,7 +847,7 @@ pub fn app_passwords() -> Query(List(AppPassword)) {
     decode.at(["passwords"], {
       decode.list({
         use name <- decode.field("name", decode.string)
-        use created <- decode.field("createdAt", timestamp_decoder())
+        use created <- decode.field("createdAt", date.decoder())
         use scopes <- decode.optional_field(
           "scopes",
           None,
@@ -1453,15 +1451,6 @@ fn optional_text(
   next: fn(Option(String)) -> Decoder(answer),
 ) -> Decoder(answer) {
   decode.optional_field(name, None, decode.optional(decode.string), next)
-}
-
-fn timestamp_decoder() -> Decoder(Timestamp) {
-  use text <- decode.then(decode.string)
-
-  case timestamp.parse_rfc3339(text) {
-    Ok(timestamp) -> decode.success(timestamp)
-    Error(Nil) -> decode.failure(timestamp.from_unix_seconds(0), "Timestamp")
-  }
 }
 
 fn backup_codes_decoder() -> Decoder(List(String)) {

@@ -1,3 +1,4 @@
+import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/string
 import gleam/time/calendar
@@ -13,13 +14,35 @@ pub fn describe(timestamp: Timestamp, offset: Duration) -> String {
 }
 
 pub fn describe_moment(timestamp: Timestamp, offset: Duration) -> String {
-  let #(_, time) = timestamp.to_calendar(timestamp, offset)
+  describe(timestamp, offset) <> " " <> time_of_day(timestamp, offset)
+}
+
+pub fn describe_moment_with_year(
+  timestamp: Timestamp,
+  offset: Duration,
+) -> String {
+  let #(date, _) = timestamp.to_calendar(timestamp, offset)
 
   describe(timestamp, offset)
   <> " "
-  <> two_digits(time.hours)
-  <> ":"
-  <> two_digits(time.minutes)
+  <> int.to_string(date.year)
+  <> " "
+  <> time_of_day(timestamp, offset)
+}
+
+pub fn decoder() -> Decoder(Timestamp) {
+  use text <- decode.then(decode.string)
+
+  case timestamp.parse_rfc3339(text) {
+    Ok(timestamp) -> decode.success(timestamp)
+    Error(Nil) -> decode.failure(timestamp.from_unix_seconds(0), "Timestamp")
+  }
+}
+
+fn time_of_day(timestamp: Timestamp, offset: Duration) -> String {
+  let #(_, time) = timestamp.to_calendar(timestamp, offset)
+
+  two_digits(time.hours) <> ":" <> two_digits(time.minutes)
 }
 
 fn two_digits(number: Int) -> String {
