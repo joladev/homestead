@@ -18,7 +18,7 @@ import homestead/json_text
 import homestead/json_view
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -61,69 +61,48 @@ type Copied {
 
 pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
   let account = session.account(session)
-
-  let local_offset = calendar.local_offset()
-
-  case did.from_string(account) {
-    Ok(did) -> {
-      let #(history, load_history) = case
-        identity.history_request(directory, did)
-      {
-        Ok(request) -> #(
-          Recorded(log: Loading),
-          rsvp.send(
-            request,
-            rsvp.expect_ok_response(fn(response) {
-              DirectoryReturnedHistory(
-                result.replace_error(response, tranquil.Unreachable)
-                |> result.try(fn(response) {
-                  identity_history.read(response.body)
-                  |> result.replace_error(tranquil.NotUnderstood)
-                }),
-              )
+  let #(history, load_history) = case
+    identity.history_request(directory, account)
+  {
+    Ok(request) -> #(
+      Recorded(log: Loading),
+      rsvp.send(
+        request,
+        rsvp.expect_ok_response(fn(response) {
+          DirectoryReturnedHistory(
+            result.replace_error(response, tranquil.Unreachable)
+            |> result.try(fn(response) {
+              identity_history.read(response.body)
+              |> result.replace_error(tranquil.NotUnderstood)
             }),
-          ),
-        )
-        Error(Nil) -> #(NotRecorded, effect.none())
-      }
-
-      #(
-        Model(
-          account:,
-          local_offset:,
-          identity: Loading,
-          history:,
-          copied: NothingCopied,
-        ),
-        effect.batch([
-          rsvp.send(
-            identity.document_request(directory, did),
-            rsvp.expect_ok_response(fn(response) {
-              DirectoryReturnedDocument(
-                result.replace_error(response, tranquil.Unreachable)
-                |> result.try(fn(response) { read(response.body) }),
-              )
-            }),
-          ),
-          load_history,
-        ]),
-      )
-    }
-    Error(_) -> #(
-      Model(
-        account:,
-        local_offset:,
-        identity: Failed(tranquil.NotUnderstood),
-        history: NotRecorded,
-        copied: NothingCopied,
+          )
+        }),
       ),
-      effect.none(),
     )
+    Error(Nil) -> #(NotRecorded, effect.none())
   }
-}
 
-pub fn departure(_model: Model) -> Option(Departure) {
-  None
+  #(
+    Model(
+      account: did.to_string(account),
+      local_offset: calendar.local_offset(),
+      identity: Loading,
+      history:,
+      copied: NothingCopied,
+    ),
+    effect.batch([
+      rsvp.send(
+        identity.document_request(directory, account),
+        rsvp.expect_ok_response(fn(response) {
+          DirectoryReturnedDocument(
+            result.replace_error(response, tranquil.Unreachable)
+            |> result.try(fn(response) { read(response.body) }),
+          )
+        }),
+      ),
+      load_history,
+    ]),
+  )
 }
 
 pub opaque type Message {

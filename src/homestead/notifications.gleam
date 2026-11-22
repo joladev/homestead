@@ -6,7 +6,7 @@ import gleam/time/duration.{type Duration}
 import homestead/date
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type Problem, type SentMessage}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -63,20 +63,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       tranquil.load(session, tranquil.language(), ServerReturnedLanguage),
     ]),
   )
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.login_alerts)
-    || remote.has_ended_session(model.messages)
-    || remote.has_ended_session(model.language)
-    || model.saving == SaveRefused(tranquil.SessionEnded)
-    || model.saving_language == SaveRefused(tranquil.SessionEnded)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
 }
 
 pub opaque type Message {
@@ -256,7 +242,12 @@ fn view_message(
       name: date.describe_moment(message.sent, model.local_offset),
       details: [
         html.text(describe_title(message) <> " "),
-        layout.dim("\u{00B7} " <> message.channel <> " \u{00B7} " <> status),
+        layout.dim(
+          "\u{00B7} "
+          <> tranquil.channel_name(message.channel)
+          <> " \u{00B7} "
+          <> status,
+        ),
       ],
       actions: [
         html.button(

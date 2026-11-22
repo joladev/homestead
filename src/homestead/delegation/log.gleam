@@ -42,11 +42,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.entries)
-  || model.more == MoreRefused(tranquil.SessionEnded)
-}
-
 pub opaque type Message {
   ServerReturnedLog(result: Result(LogPage, Problem))
   UserClickedMore(offset: Int)

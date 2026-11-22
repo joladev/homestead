@@ -47,11 +47,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.devices)
-  || model.action == Refused(tranquil.SessionEnded)
-}
-
 pub opaque type Message {
   ServerReturnedDevices(result: Result(List(RememberedDevice), Problem))
   UserClickedRename(device: RememberedDevice)

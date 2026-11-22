@@ -1,3 +1,4 @@
+import at/did
 import gleam/javascript/array.{type Array}
 import homestead/session.{type Session}
 import lustre/effect.{type Effect}
@@ -26,7 +27,7 @@ pub fn save(
   let stopper =
     start(
       session.origin(session),
-      session.account(session),
+      did.to_string(session.account(session)),
       array.from_list(media),
       filename,
       fn(done) { dispatch(progressed(done)) },

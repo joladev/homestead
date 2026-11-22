@@ -1,4 +1,3 @@
-import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/calendar
@@ -59,14 +58,9 @@ pub fn init(session: Session, filter: Filter) -> #(Model, Effect(Message)) {
 }
 
 pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.sessions)
-    || model.action == Refused(tranquil.SessionEnded)
-
-  case model.has_signed_out, has_ended_session {
-    True, _ -> Some(session.SignedOut)
-    False, True -> Some(session.Ended)
-    False, False -> None
+  case model.has_signed_out {
+    True -> Some(session.SignedOut)
+    False -> None
   }
 }
 
@@ -144,12 +138,7 @@ fn load(session: Session) -> Effect(Message) {
 }
 
 fn sign_out(session: Session) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.end(session)
-  |> promise.tap(fn(_) { dispatch(ServerSignedOut) })
-
-  Nil
+  browser.await(fn() { session.end(session) }, fn(_) { ServerSignedOut })
 }
 
 pub fn view(model: Model) -> Element(Message) {

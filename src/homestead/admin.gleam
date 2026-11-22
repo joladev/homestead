@@ -1,7 +1,6 @@
 import gleam/float
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/string
 import homestead/admin/accounts
 import homestead/admin/invite_codes
@@ -9,7 +8,7 @@ import homestead/admin/server_page
 import homestead/admin/signal
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type Problem, type ServerTotals}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -41,20 +40,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       effect.map(server_page_effect, ServerPageProducedMessage),
     ]),
   )
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.totals)
-    || accounts.has_ended_session(model.accounts)
-    || invite_codes.has_ended_session(model.invite_codes)
-    || signal.has_ended_session(model.signal)
-    || server_page.has_ended_session(model.server_page)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
 }
 
 pub opaque type Message {

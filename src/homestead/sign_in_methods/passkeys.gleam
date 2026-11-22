@@ -47,15 +47,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.passkeys)
-  || case model.action {
-    Refused(problem:) -> problem == tranquil.SessionEnded
-    SigningInAgain(reauth:, ..) -> reauth.has_ended_session(reauth)
-    Resting | Renaming(..) | ConfirmingDelete(_) | Deleting(_) -> False
-  }
-}
-
 pub fn has_any(model: Model) -> Bool {
   case model.passkeys {
     Loaded(value: [_, ..]) -> True

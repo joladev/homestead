@@ -1,5 +1,4 @@
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/string
 import gleam/time/calendar
 import gleam/time/duration.{type Duration}
@@ -9,7 +8,7 @@ import homestead/date
 import homestead/layout
 import homestead/permissions.{type Preset, FullAccess}
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type AppPassword, type Problem}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -63,18 +62,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
     ),
     load(session),
   )
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.passwords)
-    || model.revoking == RevokeRefused(tranquil.SessionEnded)
-    || model.creation == CreationRefused(tranquil.SessionEnded)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
 }
 
 pub opaque type Message {
@@ -382,11 +369,8 @@ fn view_form(model: Model) -> Element(Message) {
 fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("DuplicateAppPassword", _) -> "That name is already in use"
-    tranquil.Refused("RateLimitExceeded", _) ->
-      "Too many attempts. Try again later"
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't create it"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

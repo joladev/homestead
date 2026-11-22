@@ -28,15 +28,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.preference)
-  || case model.action {
-    Refused(problem:) -> problem == tranquil.SessionEnded
-    SigningInAgain(reauth:, ..) -> reauth.has_ended_session(reauth)
-    Resting | Saving(_) -> False
-  }
-}
-
 pub fn is_offered(model: Model) -> Bool {
   case model.preference {
     Loaded(value: preference) -> preference.has_second_step

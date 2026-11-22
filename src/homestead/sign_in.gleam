@@ -6,13 +6,13 @@ import gleam/dynamic/decode
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/int
-import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri}
+import homestead/browser
 import homestead/identity
 import homestead/landing
 import homestead/session.{type StoredAccount}
@@ -310,12 +310,9 @@ fn without_account(model: Model, did: String) -> Model {
 }
 
 fn remove_account(did: String) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.remove(did)
-  |> promise.tap(fn(_) { dispatch(BrowserRemovedAccount(did)) })
-
-  Nil
+  browser.await(fn() { session.remove(did) }, fn(_) {
+    BrowserRemovedAccount(did)
+  })
 }
 
 fn is_being_typed(model: Model, query: String) -> Bool {
@@ -371,12 +368,7 @@ fn start_lookup(model: Model, text: String) -> #(Model, Effect(Message)) {
 const typing_pause_milliseconds = 200
 
 fn pause_before_searching(query: String) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  promise.wait(typing_pause_milliseconds)
-  |> promise.tap(fn(_) { dispatch(UserPausedTyping(query)) })
-
-  Nil
+  browser.after(typing_pause_milliseconds, UserPausedTyping(query))
 }
 
 fn search(query: String) -> Effect(Message) {
@@ -405,12 +397,7 @@ fn check_health(did: Did, request: Request(String)) -> Effect(Message) {
 }
 
 fn prepare_sign_in(did: Did) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.begin(did)
-  |> promise.tap(fn(prepared) { dispatch(ServerPreparedSignIn(prepared)) })
-
-  Nil
+  browser.await(fn() { session.begin(did) }, ServerPreparedSignIn)
 }
 
 pub fn view(model: Model) -> Element(Message) {

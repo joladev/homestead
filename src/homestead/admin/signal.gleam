@@ -39,11 +39,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.is_linked)
-  || model.action == Refused(tranquil.SessionEnded)
-}
-
 pub opaque type Message {
   ServerReturnedStatus(result: Result(Bool, Problem))
   UserClickedLink
@@ -145,9 +140,8 @@ fn wait() -> Effect(Message) {
 pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("InvalidRequest", message) if message != "" -> message
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

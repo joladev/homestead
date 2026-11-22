@@ -1,3 +1,4 @@
+import at/did.{type Did}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/int
@@ -36,14 +37,60 @@ pub fn health_decoder() -> Decoder(Software) {
 }
 
 pub type Problem {
-  SessionEnded
   Unreachable
   Refused(error: String, message: String)
   NotUnderstood
 }
 
+type Failure {
+  Expired
+  Failed(problem: Problem)
+}
+
+pub fn describe(problem: Problem) -> String {
+  case problem {
+    Refused("RateLimitExceeded", _) -> "Too many attempts. Try again later"
+    Unreachable -> "Couldn't reach the server"
+    Refused(_, _) | NotUnderstood -> "The server didn't accept that"
+  }
+}
+
 pub opaque type Query(answer) {
   Query(path: String, decoder: Decoder(answer))
+}
+
+pub type Channel {
+  Email
+  Discord
+  Telegram
+  Signal
+  OtherChannel(name: String)
+}
+
+pub fn channel_name(channel: Channel) -> String {
+  case channel {
+    Email -> "email"
+    Discord -> "discord"
+    Telegram -> "telegram"
+    Signal -> "signal"
+    OtherChannel(name:) -> name
+  }
+}
+
+pub fn channel_label(channel: Channel) -> String {
+  string.capitalise(channel_name(channel))
+}
+
+fn channel_decoder() -> Decoder(Channel) {
+  use name <- decode.map(decode.string)
+
+  case name {
+    "email" -> Email
+    "discord" -> Discord
+    "telegram" -> Telegram
+    "signal" -> Signal
+    name -> OtherChannel(name:)
+  }
 }
 
 pub type Account {
@@ -51,7 +98,7 @@ pub type Account {
     handle: String,
     email: Option(String),
     email_verified: Bool,
-    contact_channel: String,
+    contact_channel: Channel,
     contact_verified: Bool,
     is_admin: Bool,
   )
@@ -60,7 +107,7 @@ pub type Account {
 pub type Server {
   Server(
     handle_domains: List(String),
-    contact_channels: List(String),
+    contact_channels: List(Channel),
     discord_bot: Option(String),
     discord_app_id: Option(String),
     telegram_bot: Option(String),
@@ -70,7 +117,7 @@ pub type Server {
 pub type SentMessage {
   SentMessage(
     sent: Timestamp,
-    channel: String,
+    channel: Channel,
     kind: String,
     status: String,
     subject: Option(String),
@@ -79,11 +126,11 @@ pub type SentMessage {
 }
 
 pub type ContactPreferences {
-  ContactPreferences(preferred: String, usernames: List(ChannelUsername))
+  ContactPreferences(preferred: Channel, usernames: List(ChannelUsername))
 }
 
 pub type ChannelUsername {
-  ChannelUsername(channel: String, username: String, verified: Bool)
+  ChannelUsername(channel: Channel, username: String, verified: Bool)
 }
 
 pub type Passkey {
@@ -266,7 +313,7 @@ pub fn account() -> Query(Account) {
       False,
       decode.bool,
     )
-    use contact_channel <- decode.field("preferredChannel", decode.string)
+    use contact_channel <- decode.field("preferredChannel", channel_decoder())
     use contact_verified <- decode.field(
       "preferredChannelVerified",
       decode.bool,
@@ -293,8 +340,8 @@ pub fn server() -> Query(Server) {
     )
     use contact_channels <- decode.optional_field(
       "availableCommsChannels",
-      ["email"],
-      decode.list(decode.string),
+      [Email],
+      decode.list(channel_decoder()),
     )
     use discord_bot <- optional_text("discordBotUsername")
     use discord_app_id <- optional_text("discordAppId")
@@ -334,7 +381,7 @@ pub fn sent_messages() -> Query(List(SentMessage)) {
       ["notifications"],
       decode.list({
         use sent <- decode.field("createdAt", date.decoder())
-        use channel <- decode.field("channel", decode.string)
+        use channel <- decode.field("channel", channel_decoder())
         use kind <- decode.field("commsType", decode.string)
         use status <- decode.field("status", decode.string)
         use subject <- optional_text("subject")
@@ -354,14 +401,14 @@ pub fn sent_messages() -> Query(List(SentMessage)) {
 }
 
 pub fn contact_preferences() -> Query(ContactPreferences) {
-  let username = fn(channel: String, next) {
+  let username = fn(channel: Channel, next) {
     use username <- decode.optional_field(
-      channel <> "Username",
+      channel_name(channel) <> "Username",
       None,
       decode.optional(decode.string),
     )
     use verified <- decode.optional_field(
-      channel <> "Verified",
+      channel_name(channel) <> "Verified",
       False,
       decode.bool,
     )
@@ -374,10 +421,10 @@ pub fn contact_preferences() -> Query(ContactPreferences) {
   }
 
   query("_account.getNotificationPrefs", [], {
-    use preferred <- decode.field("preferredChannel", decode.string)
-    use discord <- username("discord")
-    use telegram <- username("telegram")
-    use signal <- username("signal")
+    use preferred <- decode.field("preferredChannel", channel_decoder())
+    use discord <- username(Discord)
+    use telegram <- username(Telegram)
+    use signal <- username(Signal)
 
     decode.success(
       ContactPreferences(preferred:, usernames: [discord, telegram, signal]),
@@ -385,7 +432,9 @@ pub fn contact_preferences() -> Query(ContactPreferences) {
   })
 }
 
-pub fn display_name(account: String) -> Query(Option(String)) {
+pub fn display_name(account: Did) -> Query(Option(String)) {
+  let account = did.to_string(account)
+
   query(
     "com.atproto.repo.getRecord",
     [
@@ -549,7 +598,9 @@ pub fn signal_linked() -> Query(Bool) {
   query("_admin.getSignalStatus", [], decode.at(["linked"], decode.bool))
 }
 
-pub fn media(account: String, after: Option(String)) -> Query(MediaPage) {
+pub fn media(account: Did, after: Option(String)) -> Query(MediaPage) {
+  let account = did.to_string(account)
+
   let page = [#("did", account), #("limit", "1000")]
 
   query(
@@ -663,7 +714,9 @@ pub fn delegation_log(offset: Int) -> Query(LogPage) {
   )
 }
 
-pub fn collections(account: String) -> Query(List(String)) {
+pub fn collections(account: Did) -> Query(List(String)) {
+  let account = did.to_string(account)
+
   query(
     "com.atproto.repo.describeRepo",
     [#("repo", account)],
@@ -672,10 +725,12 @@ pub fn collections(account: String) -> Query(List(String)) {
 }
 
 pub fn records(
-  account: String,
+  account: Did,
   collection: String,
   after: Option(String),
 ) -> Query(RecordPage) {
+  let account = did.to_string(account)
+
   let page = [#("repo", account), #("collection", collection), #("limit", "50")]
 
   query(
@@ -694,10 +749,12 @@ pub fn records(
 }
 
 pub fn record(
-  account: String,
+  account: Did,
   collection: String,
   key: String,
 ) -> Query(RepoRecord) {
+  let account = did.to_string(account)
+
   query(
     "com.atproto.repo.getRecord",
     [#("repo", account), #("collection", collection), #("rkey", key)],
@@ -902,11 +959,13 @@ pub fn create_app_password(
 }
 
 pub fn save_record(
-  account: String,
+  account: Did,
   collection: String,
   key: String,
   record: String,
 ) -> Command(Nil) {
+  let account = did.to_string(account)
+
   Command(
     path: "/xrpc/com.atproto.repo.putRecord",
     body: record_body(
@@ -922,11 +981,13 @@ pub fn save_record(
 }
 
 pub fn create_record(
-  account: String,
+  account: Did,
   collection: String,
   key: Option(String),
   record: String,
 ) -> Command(String) {
+  let account = did.to_string(account)
+
   let place = [
     #("repo", json.string(account)),
     #("collection", json.string(collection)),
@@ -954,10 +1015,12 @@ pub fn create_record(
 }
 
 pub fn delete_record(
-  account: String,
+  account: Did,
   collection: String,
   key: String,
 ) -> Command(Nil) {
+  let account = did.to_string(account)
+
   command(
     "com.atproto.repo.deleteRecord",
     json.object([
@@ -1212,7 +1275,9 @@ pub fn change_handle(handle: String) -> Command(Nil) {
   )
 }
 
-pub fn resend_verification(account: String) -> Command(Nil) {
+pub fn resend_verification(account: Did) -> Command(Nil) {
+  let account = did.to_string(account)
+
   command(
     "com.atproto.server.resendVerification",
     json.object([#("did", json.string(account))]),
@@ -1248,17 +1313,20 @@ pub fn change_email(email: String, code: Option(String)) -> Command(Nil) {
 }
 
 pub fn update_contact(
-  preferred: String,
-  usernames: List(#(String, String)),
+  preferred: Channel,
+  usernames: List(#(Channel, String)),
 ) -> Command(Nil) {
   let usernames =
     list.map(usernames, fn(entry) {
-      #(entry.0 <> "Username", json.string(entry.1))
+      #(channel_name(entry.0) <> "Username", json.string(entry.1))
     })
 
   command(
     "_account.updateNotificationPrefs",
-    json.object([#("preferredChannel", json.string(preferred)), ..usernames]),
+    json.object([
+      #("preferredChannel", json.string(channel_name(preferred))),
+      ..usernames
+    ]),
   )
 }
 
@@ -1281,14 +1349,14 @@ pub fn set_login_alerts(enabled: Bool) -> Command(Nil) {
 }
 
 pub fn confirm_channel(
-  channel: String,
+  channel: Channel,
   username: String,
   code: String,
 ) -> Command(Nil) {
   command(
     "_account.confirmChannelVerification",
     json.object([
-      #("channel", json.string(channel)),
+      #("channel", json.string(channel_name(channel))),
       #("identifier", json.string(username)),
       #("code", json.string(code)),
     ]),
@@ -1317,25 +1385,44 @@ pub fn parse(query: Query(answer), body: String) -> Result(answer, Problem) {
   json.parse(body, query.decoder) |> result.replace_error(NotUnderstood)
 }
 
-pub fn fetch(
+fn fetch(
   session: Session,
   query: Query(answer),
-) -> Promise(Result(answer, Problem)) {
+) -> Promise(Result(answer, Failure)) {
   use response <- promise.map(session.get(session, query.path))
-  use body <- result.try(accepted(session, response))
+  use body <- result.try(accepted(response))
 
-  parse(query, body)
+  parse(query, body) |> result.map_error(Failed)
 }
 
-pub fn run(
+fn run(
   session: Session,
   command: Command(answer),
-) -> Promise(Result(answer, Problem)) {
+) -> Promise(Result(answer, Failure)) {
   let body = command.body
   use response <- promise.map(session.post(session, command.path, body))
-  use answer <- result.try(accepted(session, response))
+  use answer <- result.try(accepted(response))
 
-  command.read(answer)
+  command.read(answer) |> result.map_error(Failed)
+}
+
+fn report(
+  session: Session,
+  start: fn() -> Promise(Result(answer, Failure)),
+  to_message: fn(Result(answer, Problem)) -> message,
+) -> Effect(message) {
+  use dispatch <- effect.from
+
+  start()
+  |> promise.tap(fn(outcome) {
+    case outcome {
+      Ok(answer) -> dispatch(to_message(Ok(answer)))
+      Error(Failed(problem:)) -> dispatch(to_message(Error(problem)))
+      Error(Expired) -> session.expire(session)
+    }
+  })
+
+  Nil
 }
 
 pub fn load(
@@ -1343,12 +1430,7 @@ pub fn load(
   query: Query(answer),
   to_message: fn(Result(answer, Problem)) -> message,
 ) -> Effect(message) {
-  use dispatch <- effect.from
-
-  fetch(session, query)
-  |> promise.tap(fn(answer) { dispatch(to_message(answer)) })
-
-  Nil
+  report(session, fn() { fetch(session, query) }, to_message)
 }
 
 pub fn perform(
@@ -1356,12 +1438,7 @@ pub fn perform(
   command: Command(answer),
   to_message: fn(Result(answer, Problem)) -> message,
 ) -> Effect(message) {
-  use dispatch <- effect.from
-
-  run(session, command)
-  |> promise.tap(fn(outcome) { dispatch(to_message(outcome)) })
-
-  Nil
+  report(session, fn() { run(session, command) }, to_message)
 }
 
 pub fn upload_media(
@@ -1369,20 +1446,21 @@ pub fn upload_media(
   file: File,
   to_message: fn(Result(String, Problem)) -> message,
 ) -> Effect(message) {
-  use dispatch <- effect.from
+  report(
+    session,
+    fn() {
+      use response <- promise.map(session.upload(
+        session,
+        "/xrpc/com.atproto.repo.uploadBlob",
+        file,
+      ))
+      use answer <- result.try(accepted(response))
 
-  session.upload(session, "/xrpc/com.atproto.repo.uploadBlob", file)
-  |> promise.tap(fn(response) {
-    dispatch(to_message(
-      accepted(session, response)
-      |> result.try(fn(answer) {
-        json.parse(answer, decode.at(["blob", "ref", "$link"], decode.string))
-        |> result.replace_error(NotUnderstood)
-      }),
-    ))
-  })
-
-  Nil
+      json.parse(answer, decode.at(["blob", "ref", "$link"], decode.string))
+      |> result.replace_error(Failed(NotUnderstood))
+    },
+    to_message,
+  )
 }
 
 pub fn save_repository(
@@ -1390,18 +1468,21 @@ pub fn save_repository(
   filename: String,
   to_message: fn(Result(Nil, Problem)) -> message,
 ) -> Effect(message) {
-  use dispatch <- effect.from
-
   let path =
     "/xrpc/com.atproto.sync.getRepo?"
-    <> uri.query_to_string([#("did", session.account(session))])
+    <> uri.query_to_string([
+      #("did", did.to_string(session.account(session))),
+    ])
 
-  session.save(session, path, filename)
-  |> promise.tap(fn(response) {
-    dispatch(to_message(accepted(session, response) |> result.replace(Nil)))
-  })
+  report(
+    session,
+    fn() {
+      use response <- promise.map(session.save(session, path, filename))
 
-  Nil
+      accepted(response) |> result.replace(Nil)
+    },
+    to_message,
+  )
 }
 
 pub fn delete_account(
@@ -1413,7 +1494,7 @@ pub fn delete_account(
   rsvp.post(
     session.origin(session) <> "/xrpc/com.atproto.server.deleteAccount",
     json.object([
-      #("did", json.string(session.account(session))),
+      #("did", json.string(did.to_string(session.account(session)))),
       #("password", json.string(password)),
       #("token", json.string(code)),
     ]),
@@ -1446,25 +1527,24 @@ fn refusal(body: String) -> Problem {
 }
 
 fn accepted(
-  session: Session,
   response: Result(#(Int, String), session.Problem),
-) -> Result(String, Problem) {
+) -> Result(String, Failure) {
   case response {
     Ok(#(200, body)) -> Ok(body)
 
-    Error(session.SessionEnded) -> ended(session)
+    Error(session.SessionEnded) -> Error(Expired)
 
     Ok(#(status, body)) ->
       case status, refusal(body) {
         401, Refused(error: "AuthenticationFailed", ..)
         | 401, Refused(error: "ExpiredToken", ..)
-        -> ended(session)
-        _, problem -> Error(problem)
+        -> Error(Expired)
+        _, problem -> Error(Failed(problem:))
       }
 
     Error(session.SignInRejected)
     | Error(session.NothingStored)
-    | Error(session.Failed(_)) -> Error(Unreachable)
+    | Error(session.Failed(_)) -> Error(Failed(Unreachable))
   }
 }
 
@@ -1506,10 +1586,4 @@ fn query(
   }
 
   Query(path:, decoder:)
-}
-
-fn ended(session: Session) -> Result(String, Problem) {
-  session.forget(session)
-
-  Error(SessionEnded)
 }

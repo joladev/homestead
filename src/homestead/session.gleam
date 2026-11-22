@@ -28,7 +28,6 @@ pub type Client {
 
 pub type Departure {
   SignedOut
-  Ended
   SwitchedAccount(account: String)
 }
 
@@ -99,7 +98,7 @@ pub fn begin_sign_up(server: Uri) -> Promise(Result(Uri, Problem)) {
 }
 
 pub fn complete(answer: String) -> Promise(Result(Session, Problem)) {
-  do_complete(answer) |> promise.map(result.map_error(_, problem))
+  do_complete(answer) |> promise.map(checked)
 }
 
 pub fn restore() -> Promise(Result(Session, Problem)) {
@@ -110,8 +109,22 @@ pub fn restore() -> Promise(Result(Session, Problem)) {
 }
 
 pub fn switch_to(account: String) -> Promise(Result(Session, Problem)) {
-  do_restore(account) |> promise.map(result.map_error(_, problem))
+  do_restore(account) |> promise.map(checked)
 }
+
+fn checked(session: Result(Session, String)) -> Result(Session, Problem) {
+  use session <- result.try(result.map_error(session, problem))
+
+  did.from_string(do_account(session))
+  |> result.replace(session)
+  |> result.replace_error(Failed(error: "InvalidAccount"))
+}
+
+@external(javascript, "./session_ffi.mjs", "watch")
+pub fn when_expired(session: Session, do: fn() -> Nil) -> Nil
+
+@external(javascript, "./session_ffi.mjs", "expire")
+pub fn expire(session: Session) -> Nil
 
 pub fn stored_accounts() -> List(StoredAccount) {
   array.to_list(do_stored_accounts())
@@ -174,8 +187,14 @@ pub fn save(
 @external(javascript, "./session_ffi.mjs", "forget")
 pub fn forget(session: Session) -> Nil
 
+pub fn account(session: Session) -> Did {
+  let assert Ok(account) = did.from_string(do_account(session))
+
+  account
+}
+
 @external(javascript, "./session_ffi.mjs", "account")
-pub fn account(session: Session) -> String
+fn do_account(session: Session) -> String
 
 @external(javascript, "./session_ffi.mjs", "server")
 pub fn server(session: Session) -> String

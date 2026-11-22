@@ -35,16 +35,22 @@ pub fn file_decoder() -> Decoder(File) {
 @external(javascript, "./browser_ffi.mjs", "fileName")
 pub fn file_name(file: File) -> String
 
+pub fn await(
+  start: fn() -> Promise(value),
+  to_message: fn(value) -> message,
+) -> Effect(message) {
+  use dispatch <- effect.from
+
+  start() |> promise.tap(fn(value) { dispatch(to_message(value)) })
+
+  Nil
+}
+
 pub fn copy(
   text: String,
   to_message: fn(Result(Nil, Nil)) -> message,
 ) -> Effect(message) {
-  use dispatch <- effect.from
-
-  do_copy(text)
-  |> promise.tap(fn(copied) { dispatch(to_message(copied)) })
-
-  Nil
+  await(fn() { do_copy(text) }, to_message)
 }
 
 @external(javascript, "./browser_ffi.mjs", "focus")

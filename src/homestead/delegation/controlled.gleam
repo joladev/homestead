@@ -1,4 +1,3 @@
-import gleam/javascript/promise
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -62,18 +61,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
     ),
     load(session),
   )
-}
-
-pub fn has_ended_session(model: Model) -> Bool {
-  let ended = tranquil.SessionEnded
-
-  remote.has_ended_session(model.accounts)
-  || case model.action {
-    Refused(problem:) -> problem == ended
-    Creating(submission:, ..) -> submission == SubmissionRefused(ended)
-    Resting | ConfirmingDelete(_) | Deleting | StartingToActAs | ActAsRefused ->
-      False
-  }
 }
 
 pub fn has_any(model: Model) -> Bool {
@@ -208,14 +195,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     UserClickedActAs(account:), _ -> #(
       Model(..model, action: StartingToActAs),
-      {
-        use dispatch <- effect.from
-
-        session.act_as(session, account.did)
-        |> promise.tap(fn(prepared) { dispatch(ServerPreparedActAs(prepared)) })
-
-        Nil
-      },
+      browser.await(
+        fn() { session.act_as(session, account.did) },
+        ServerPreparedActAs,
+      ),
     )
 
     ServerPreparedActAs(result: Ok(login)), _ -> #(model, modem.load(login))
@@ -253,9 +236,8 @@ pub fn describe_refusal(problem: Problem) -> String {
       | tranquil.Refused("InvalidDelegation", message)
       if message != ""
     -> message
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

@@ -4,7 +4,7 @@ import gleam/option.{type Option, None, Some}
 import homestead/layout
 import homestead/media_archive.{type Stopper}
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type Account, type MediaPage, type Problem, MediaPage}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -50,18 +50,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       load_media(session, [], None),
     ]),
   )
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.account)
-    || remote.has_ended_session(model.media)
-    || model.download == Refused(tranquil.SessionEnded)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
 }
 
 pub opaque type Message {

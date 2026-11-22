@@ -63,12 +63,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.is_required)
-  || remote.has_ended_session(model.codes)
-  || model.action == Refused(tranquil.SessionEnded)
-}
-
 pub fn is_offered(model: Model) -> Bool {
   model.is_required == Loaded(True)
 }

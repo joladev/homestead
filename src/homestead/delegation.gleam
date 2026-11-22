@@ -1,11 +1,10 @@
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import homestead/delegation/controlled
 import homestead/delegation/controllers
 import homestead/delegation/log
 import homestead/layout
 import homestead/remote.{type Remote, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type AccessLevel, type Problem}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -33,19 +32,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       effect.map(log_effect, LogProducedMessage),
     ]),
   )
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.levels)
-    || controllers.has_ended_session(model.controllers)
-    || controlled.has_ended_session(model.controlled)
-    || log.has_ended_session(model.log)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
 }
 
 pub opaque type Message {

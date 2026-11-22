@@ -1,6 +1,5 @@
-import gleam/option.{type Option, None, Some}
 import homestead/layout
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/sign_in_methods/authenticator
 import homestead/sign_in_methods/devices
 import homestead/sign_in_methods/linked_accounts
@@ -47,21 +46,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       effect.map(devices_effect, DevicesProducedMessage),
     ]),
   )
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    passkeys.has_ended_session(model.passkeys)
-    || authenticator.has_ended_session(model.authenticator)
-    || password.has_ended_session(model.password)
-    || linked_accounts.has_ended_session(model.linked_accounts)
-    || older_apps.has_ended_session(model.older_apps)
-    || devices.has_ended_session(model.devices)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
 }
 
 pub opaque type Message {

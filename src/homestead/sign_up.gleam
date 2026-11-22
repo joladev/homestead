@@ -1,7 +1,7 @@
-import gleam/javascript/promise
 import gleam/option.{None, Some}
 import gleam/string
 import gleam/uri.{type Uri}
+import homestead/browser
 import homestead/landing
 import homestead/session
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
@@ -77,14 +77,13 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
       }
 
-    ServerReturnedHealth(server:, result: Ok(Tranquil(_))) -> #(model, {
-      use dispatch <- effect.from
-
-      session.begin_sign_up(server)
-      |> promise.tap(fn(prepared) { dispatch(ServerPreparedSignUp(prepared)) })
-
-      Nil
-    })
+    ServerReturnedHealth(server:, result: Ok(Tranquil(_))) -> #(
+      model,
+      browser.await(
+        fn() { session.begin_sign_up(server) },
+        ServerPreparedSignUp,
+      ),
+    )
 
     ServerReturnedHealth(result:, ..) -> #(
       Model(

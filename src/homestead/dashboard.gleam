@@ -1,7 +1,7 @@
+import at/did.{type Did}
 import gleam/bool
 import gleam/dynamic/decode
 import gleam/int
-import gleam/javascript/promise
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/uri.{type Uri}
@@ -80,7 +80,7 @@ pub fn init(
       page:,
       account: Loading,
       other_accounts: list.filter(session.stored_accounts(), fn(account) {
-        account.did != session.account(session)
+        account.did != did.to_string(session.account(session))
       }),
       is_account_menu_open: False,
       is_menu_open: False,
@@ -206,28 +206,28 @@ fn open(
   }
 }
 
-pub fn departure(model: Model) -> Option(Departure) {
-  let page = case model.page {
-    OverviewPage(page) -> overview.departure(page)
-    SessionsPage(page) -> sessions.departure(page)
-    ConnectedAppsPage(page) -> connected_apps.departure(page)
-    AppPasswordsPage(page) -> app_passwords.departure(page)
-    ProfilePage(page) -> profile.departure(page)
-    NotificationsPage(page) -> notifications.departure(page)
-    SignInMethodsPage(page) -> sign_in_methods.departure(page)
-    ExportPage(page) -> export.departure(page)
-    DeleteAccountPage(page) -> delete_account.departure(page)
-    RepositoryPage(page) -> repository.departure(page)
-    DelegationPage(page) -> delegation.departure(page)
-    IdentityDocumentPage(page) -> identity_document.departure(page)
-    AdminPage(page) -> admin.departure(page)
-    PlaceholderPage -> None
-  }
+pub fn account(model: Model) -> Did {
+  session.account(model.session)
+}
 
-  case model.departure, remote.has_ended_session(model.account), page {
-    Some(departure), _, _ -> Some(departure)
-    None, True, _ -> Some(session.Ended)
-    None, False, departure -> departure
+pub fn departure(model: Model) -> Option(Departure) {
+  case model.departure, model.page {
+    Some(departure), _ -> Some(departure)
+    None, SessionsPage(page) -> sessions.departure(page)
+    None, ConnectedAppsPage(page) -> connected_apps.departure(page)
+    None, DeleteAccountPage(page) -> delete_account.departure(page)
+    None, OverviewPage(_)
+    | None, AppPasswordsPage(_)
+    | None, ProfilePage(_)
+    | None, NotificationsPage(_)
+    | None, SignInMethodsPage(_)
+    | None, ExportPage(_)
+    | None, RepositoryPage(_)
+    | None, DelegationPage(_)
+    | None, IdentityDocumentPage(_)
+    | None, AdminPage(_)
+    | None, PlaceholderPage
+    -> None
   }
 }
 
@@ -487,12 +487,7 @@ fn remember_handle(
 }
 
 fn end_session(session: Session) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.end(session)
-  |> promise.tap(fn(_) { dispatch(ServerEndedSession) })
-
-  Nil
+  browser.await(fn() { session.end(session) }, fn(_) { ServerEndedSession })
 }
 
 const menu_button = "menu-button"
@@ -593,7 +588,7 @@ fn view_top_bar(
 
   let account_name = case model.account {
     Loaded(value: account) -> Ok("@" <> account.handle)
-    Failed(_) -> Ok(session.account(model.session))
+    Failed(_) -> Ok(did.to_string(session.account(model.session)))
     Loading -> Error(Nil)
   }
 

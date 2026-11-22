@@ -1,12 +1,15 @@
+import at/did
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import homestead/browser
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
-import homestead/session.{type Departure, type Session}
+import homestead/remote.{
+  type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
+}
+import homestead/session.{type Session}
 import homestead/tranquil.{
-  type Account, type ContactPreferences, type Problem, type Server,
+  type Account, type Channel, type ContactPreferences, type Problem, type Server,
 }
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -14,7 +17,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-const code_channel = "signal"
+const code_channel = tranquil.Signal
 
 pub opaque type Model {
   Model(
@@ -26,12 +29,6 @@ pub opaque type Model {
     email: EmailForm,
     contact: Remote(ContactForm),
   )
-}
-
-type Submission {
-  Idle
-  Sending
-  Refused(problem: Problem)
 }
 
 type HandleForm {
@@ -77,8 +74,8 @@ type EmailStep {
 
 type ContactForm {
   ContactForm(
-    preferred: String,
-    usernames: List(#(String, String)),
+    preferred: Channel,
+    usernames: List(#(Channel, String)),
     saved: ContactPreferences,
     submission: Submission,
     code: String,
@@ -118,28 +115,6 @@ pub fn account(model: Model) -> Remote(Account) {
   model.account
 }
 
-pub fn departure(model: Model) -> Option(Departure) {
-  let ended = Refused(tranquil.SessionEnded)
-  let has_ended_session =
-    remote.has_ended_session(model.account)
-    || remote.has_ended_session(model.server)
-    || remote.has_ended_session(model.contact)
-    || model.handle.submission == ended
-    || model.verification.submission == ended
-    || model.verification.resending == ResendRefused(tranquil.SessionEnded)
-    || model.email.submission == ended
-    || case model.contact {
-      Loaded(value: form) ->
-        form.submission == ended || form.confirmation == ended
-      Loading | Failed(_) -> False
-    }
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
-}
-
 pub opaque type Message {
   ServerReturnedAccount(result: Result(Account, Problem))
   ServerReturnedServer(result: Result(Server, Problem))
@@ -162,8 +137,8 @@ pub opaque type Message {
   UserSubmittedEmailCode(code: String)
   UserCancelledEmailChange
   ServerChangedEmail(result: Result(Nil, Problem))
-  UserPickedChannel(channel: String)
-  UserTypedUsername(channel: String, username: String)
+  UserPickedChannel(channel: Channel)
+  UserTypedUsername(channel: Channel, username: String)
   UserSubmittedContact
   ServerUpdatedContact(result: Result(Nil, Problem))
   UserTypedChannelCode(code: String)
@@ -560,11 +535,8 @@ pub fn describe_refusal(problem: Problem) -> String {
     tranquil.Refused("TokenRequired", _) -> "Enter the code first"
     tranquil.Refused("InvalidToken", _) -> "That code isn't right"
     tranquil.Refused("ExpiredToken", _) -> "That code has expired"
-    tranquil.Refused("RateLimitExceeded", _) ->
-      "Too many attempts. Try again later"
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 
@@ -586,7 +558,7 @@ pub fn view(model: Model) -> Element(Message) {
             model.handle,
             account,
             model.server,
-            session.account(model.session),
+            did.to_string(session.account(model.session)),
           ),
         ]),
         layout.section("email", [
@@ -596,7 +568,7 @@ pub fn view(model: Model) -> Element(Message) {
           Loaded(value: server), Loaded(value: form) ->
             case
               list.filter(server.contact_channels, fn(channel) {
-                channel != "email"
+                channel != tranquil.Email
               })
             {
               [] -> element.none()
@@ -875,7 +847,7 @@ fn view_contact(
 ) -> Element(Message) {
   let is_sending = form.submission == Sending
   let channels = server.contact_channels
-  let awaits_verification = fn(channel: String, username: String) {
+  let awaits_verification = fn(channel: Channel, username: String) {
     username != ""
     && list.contains(
       form.saved.usernames,
@@ -905,7 +877,7 @@ fn view_contact(
                 attribute.disabled(is_sending),
                 event.on_click(UserPickedChannel(channel)),
               ]),
-              html.span([], [html.text(string.capitalise(channel))]),
+              html.span([], [html.text(tranquil.channel_label(channel))]),
             ])
           }),
         ),
@@ -913,7 +885,7 @@ fn view_contact(
       element.fragment(
         list.filter_map(form.usernames, fn(entry) {
           let #(channel, username) = entry
-          let id = "username-" <> channel
+          let id = "username-" <> tranquil.channel_name(channel)
           let is_verified =
             list.contains(
               form.saved.usernames,
@@ -927,7 +899,7 @@ fn view_contact(
                 element.fragment([
                   layout.field(
                     html.label([attribute.for(id)], [
-                      html.text(string.capitalise(channel)),
+                      html.text(tranquil.channel_label(channel)),
                     ]),
                     html.div([attribute.class("inline")], [
                       html.input([
@@ -969,13 +941,13 @@ fn view_contact(
 }
 
 fn view_bot_step(
-  channel: String,
+  channel: Channel,
   server: Server,
   handle: String,
 ) -> Element(Message) {
   let start = string.replace(handle, each: ".", with: "_")
   let bot = case channel {
-    "discord" ->
+    tranquil.Discord ->
       option.map(server.discord_bot, fn(bot) {
         #(
           bot,
@@ -984,11 +956,11 @@ fn view_bot_step(
           }),
         )
       })
-    "telegram" ->
+    tranquil.Telegram ->
       option.map(server.telegram_bot, fn(bot) {
         #(bot, Some("https://t.me/" <> bot <> "?start=" <> start))
       })
-    _ -> None
+    tranquil.Email | tranquil.Signal | tranquil.OtherChannel(_) -> None
   }
 
   case bot {
@@ -1008,7 +980,7 @@ fn view_bot_step(
                 attribute.target("_blank"),
                 attribute.rel("noopener"),
               ],
-              [html.text("Open " <> string.capitalise(channel))],
+              [html.text("Open " <> tranquil.channel_label(channel))],
             ),
           ]
           None -> []
@@ -1031,7 +1003,7 @@ fn view_code_step(form: ContactForm, username: String) -> Element(Message) {
       ]),
     ),
     layout.details_row([
-      layout.dim("Sent to you on " <> string.capitalise(code_channel)),
+      layout.dim("Sent to you on " <> tranquil.channel_label(code_channel)),
     ]),
     view_refusal(form.confirmation),
     layout.details_row([

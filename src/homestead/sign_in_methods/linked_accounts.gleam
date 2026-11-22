@@ -52,12 +52,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.providers)
-  || remote.has_ended_session(model.accounts)
-  || model.action == Refused(tranquil.SessionEnded)
-}
-
 pub fn is_offered(model: Model) -> Bool {
   case model.providers {
     Loaded(value: [_, ..]) -> True
@@ -128,9 +122,8 @@ fn unlink_button_id(account: LinkedAccount) -> String {
 pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("InvalidRequest", message) if message != "" -> message
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

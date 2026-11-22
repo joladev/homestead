@@ -13,7 +13,7 @@ import homestead/route.{
   type RepositoryLocation, Collections, Data, NewRecord, Record, Records,
   Repository,
 }
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{type Problem, type RecordPage, type RepoRecord}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -142,25 +142,6 @@ pub fn init(
       ),
       effect.none(),
     )
-  }
-}
-
-pub fn departure(model: Model) -> Option(Departure) {
-  let ended = tranquil.SessionEnded
-  let has_ended_session = case model.place {
-    AtCollections(collections:) -> remote.has_ended_session(collections)
-    AtRecords(records:, more:, ..) ->
-      remote.has_ended_session(records) || more == MoreRefused(ended)
-    AtRecord(record:, action:, ..) ->
-      remote.has_ended_session(record)
-      || action == SaveRefused(ended)
-      || action == DeleteRefused(ended)
-    AtNewRecord(creation:, ..) -> creation == CreationRefused(ended)
-  }
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
   }
 }
 
@@ -442,9 +423,8 @@ pub fn is_json_object(text: String) -> Bool {
 pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused(_, message) if message != "" -> message
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

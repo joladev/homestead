@@ -2,6 +2,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import homestead/browser
 import homestead/layout
+import homestead/remote.{type Submission, Idle, Refused, Sending}
 import homestead/session.{type Departure, type Session}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
@@ -28,12 +29,6 @@ type Step {
   Deleted
 }
 
-type Submission {
-  Idle
-  Sending
-  Refused(problem: Problem)
-}
-
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
   #(Model(session:, step: Resting), effect.none())
 }
@@ -41,7 +36,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
 pub fn departure(model: Model) -> Option(Departure) {
   case model.step {
     Deleted -> Some(session.SignedOut)
-    RequestRefused(tranquil.SessionEnded) -> Some(session.Ended)
     Resting | Requesting | RequestRefused(_) | Confirming(..) -> None
   }
 }
@@ -144,11 +138,8 @@ pub fn describe_refusal(problem: Problem) -> String {
     tranquil.Refused("InvalidToken", _) -> "That code isn't right"
     tranquil.Refused("ExpiredToken", _) -> "That code has expired"
     tranquil.Refused("InvalidRequest", message) if message != "" -> message
-    tranquil.Refused("RateLimitExceeded", _) ->
-      "Too many attempts. Try again later"
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

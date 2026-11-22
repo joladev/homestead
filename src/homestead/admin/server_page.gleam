@@ -45,11 +45,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   #(Model(session:, form: Loading, submission: Idle), load(session))
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.form)
-  || model.submission == Refused(tranquil.SessionEnded)
-}
-
 pub opaque type Message {
   ServerReturnedPage(result: Result(ServerPage, Problem))
   UserTypedName(name: String)
@@ -155,9 +150,8 @@ fn save(session: Session, page: ServerPage) -> Effect(Message) {
 pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused(_, message) if message != "" -> message
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

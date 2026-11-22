@@ -51,18 +51,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   #(Model(session:, has_password: Loading, action: Resting), load(session))
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  let ended = SubmissionRefused(tranquil.SessionEnded)
-
-  remote.has_ended_session(model.has_password)
-  || case model.action {
-    Refused(problem:) -> problem == tranquil.SessionEnded
-    Changing(submission:, ..) | Setting(submission:, ..) -> submission == ended
-    SigningInAgain(reauth:, ..) -> reauth.has_ended_session(reauth)
-    Resting | ConfirmingRemove | Removing | Changed -> False
-  }
-}
-
 pub opaque type Message {
   ServerReturnedStatus(result: Result(Bool, Problem))
   UserClickedChange
@@ -295,11 +283,8 @@ pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("InvalidPassword", _) -> "That password isn't right"
     tranquil.Refused("InvalidRequest", message) if message != "" -> message
-    tranquil.Refused("RateLimitExceeded", _) ->
-      "Too many attempts. Try again later"
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 

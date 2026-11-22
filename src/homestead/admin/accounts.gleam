@@ -74,14 +74,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  let ended = tranquil.SessionEnded
-
-  remote.has_ended_session(model.accounts)
-  || model.more == MoreRefused(ended)
-  || model.action == Refused(ended)
-}
-
 pub opaque type Message {
   ServerReturnedAccounts(result: Result(AccountPage, Problem))
   UserTypedHandle(handle: String)

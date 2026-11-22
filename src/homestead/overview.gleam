@@ -1,3 +1,4 @@
+import at/did
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -9,7 +10,7 @@ import homestead/route.{
   type Route, Access, Account, ConnectedApps, Data, Export, Profile, Sessions,
   SignInMethods,
 }
-import homestead/session.{type Departure, type Session}
+import homestead/session.{type Session}
 import homestead/tranquil.{
   type ActiveSession, type Authenticator, type Passkey, type Problem,
 }
@@ -77,20 +78,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn departure(model: Model) -> Option(Departure) {
-  let has_ended_session =
-    remote.has_ended_session(model.display_name)
-    || remote.has_ended_session(model.passkeys)
-    || remote.has_ended_session(model.authenticator)
-    || remote.has_ended_session(model.has_password)
-    || remote.has_ended_session(model.sessions)
-
-  case has_ended_session {
-    True -> Some(session.Ended)
-    False -> None
-  }
-}
-
 pub opaque type Message {
   ServerReturnedDisplayName(result: Result(Option(String), Problem))
   ServerReturnedPasskeys(result: Result(List(Passkey), Problem))
@@ -150,7 +137,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
   let contact = case account.contact_channel, account.contact_verified {
     _, True -> []
-    "email", False -> [
+    tranquil.Email, False -> [
       Row(
         label: "warn",
         tone: Warning,
@@ -162,7 +149,7 @@ fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
       Row(
         label: "warn",
         tone: Warning,
-        facts: Loaded(string.capitalise(channel) <> " not verified"),
+        facts: Loaded(tranquil.channel_label(channel) <> " not verified"),
         action: #("Verify contact", Account(Profile)),
       ),
     ]
@@ -290,7 +277,7 @@ fn view_loaded(
 ) -> Element(Message) {
   let server = session.server(session)
   let handle = "@" <> account.handle
-  let did = session.account(session)
+  let account_did = did.to_string(session.account(session))
 
   layout.page([
     html.section([], [
@@ -304,9 +291,12 @@ fn view_loaded(
         html.text(" on " <> server),
       ]),
       html.p([attribute.class("did")], [
-        html.code([], [html.text(did)]),
+        html.code([], [html.text(account_did)]),
         html.button(
-          [attribute.class("action"), event.on_click(UserClickedCopy(did))],
+          [
+            attribute.class("action"),
+            event.on_click(UserClickedCopy(account_did)),
+          ],
           [
             html.text(case model.copying {
               NotCopied -> "Copy"

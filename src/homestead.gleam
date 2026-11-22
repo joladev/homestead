@@ -1,9 +1,10 @@
-import gleam/javascript/promise
+import at/did.{type Did}
 import gleam/option.{None, Some}
 import gleam/uri.{type Uri, Uri}
 import homestead/about
+import homestead/browser
 import homestead/dashboard
-import homestead/route.{Overview}
+import homestead/route.{type Route, Overview}
 import homestead/session.{type Session}
 import homestead/sign_in
 import homestead/sign_up
@@ -85,6 +86,7 @@ type Message {
   ServerIssuedSession(result: Result(Session, session.Problem))
   UserNavigatedTo(uri: Uri)
   DashboardProducedMessage(dashboard.Message)
+  ServerEndedSession(account: Did)
 }
 
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
@@ -120,10 +122,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       }
 
     Restoring(location:), BrowserRestoredSession(result: Ok(session)) ->
-      open_dashboard(
-        model,
-        dashboard.init(session, model.directory, route.from_uri(location)),
-      )
+      start_dashboard(model, session, route.from_uri(location))
 
     Restoring(_), BrowserRestoredSession(result: Error(session.NothingStored))
     -> #(
@@ -137,11 +136,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     CompletingSignIn, ServerIssuedSession(result: Ok(session)) -> {
-      let #(model, effect) =
-        open_dashboard(
-          model,
-          dashboard.init(session, model.directory, Overview),
-        )
+      let #(model, effect) = start_dashboard(model, session, Overview)
 
       #(model, effect.batch([show_overview(), effect]))
     }
@@ -174,15 +169,19 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
           effect.batch([show_overview(), restore_session()]),
         )
 
-        Some(session.Ended) -> #(
-          Model(..model, state: ended_session(model.directory)),
-          show_overview(),
-        )
-
         Some(session.SwitchedAccount(account:)) ->
           switch_account(model, account)
       }
     }
+
+    SignedIn(dashboard:), ServerEndedSession(account:) ->
+      case dashboard.account(dashboard) == account {
+        True -> #(
+          Model(..model, state: ended_session(model.directory)),
+          show_overview(),
+        )
+        False -> #(model, effect.none())
+      }
 
     Restoring(_), SignInProducedMessage(_)
     | Restoring(_), ServerIssuedSession(_)
@@ -215,8 +214,33 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | SignedIn(_), SignInProducedMessage(_)
     | SignedIn(_), BrowserRestoredSession(_)
     | SignedIn(_), ServerIssuedSession(_)
+    | Restoring(_), ServerEndedSession(_)
+    | CompletingSignIn, ServerEndedSession(_)
+    | SignedOut(_), ServerEndedSession(_)
+    | AddingAccount(_), ServerEndedSession(_)
+    | SigningUp(_), ServerEndedSession(_)
+    | ReadingAbout, ServerEndedSession(_)
     -> #(model, effect.none())
   }
+}
+
+fn start_dashboard(
+  model: Model,
+  session: Session,
+  route: Route,
+) -> #(Model, Effect(Message)) {
+  let #(model, effect) =
+    open_dashboard(model, dashboard.init(session, model.directory, route))
+
+  #(model, effect.batch([watch(session), effect]))
+}
+
+fn watch(session: Session) -> Effect(Message) {
+  use dispatch <- effect.from
+
+  session.when_expired(session, fn() {
+    dispatch(ServerEndedSession(session.account(session)))
+  })
 }
 
 fn open_dashboard(
@@ -288,30 +312,15 @@ fn show_overview() -> Effect(Message) {
 }
 
 fn restore_session() -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.restore()
-  |> promise.tap(fn(restored) { dispatch(BrowserRestoredSession(restored)) })
-
-  Nil
+  browser.await(session.restore, BrowserRestoredSession)
 }
 
 fn restore_account(account: String) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.switch_to(account)
-  |> promise.tap(fn(restored) { dispatch(BrowserRestoredSession(restored)) })
-
-  Nil
+  browser.await(fn() { session.switch_to(account) }, BrowserRestoredSession)
 }
 
 fn complete_sign_in(answer: String) -> Effect(Message) {
-  use dispatch <- effect.from
-
-  session.complete(answer)
-  |> promise.tap(fn(issued) { dispatch(ServerIssuedSession(issued)) })
-
-  Nil
+  browser.await(fn() { session.complete(answer) }, ServerIssuedSession)
 }
 
 fn view(model: Model) -> Element(Message) {

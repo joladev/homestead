@@ -53,11 +53,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
 }
 
 pub fn departure(model: Model) -> Option(Departure) {
-  case sessions.departure(model.sessions), model.remembered {
-    Some(departure), _ -> Some(departure)
-    None, Remembered(apps: Failed(tranquil.SessionEnded)) -> Some(session.Ended)
-    None, Remembered(_) | None, NotSupported -> None
-  }
+  sessions.departure(model.sessions)
 }
 
 pub opaque type Message {

@@ -19,6 +19,7 @@ import { saveBlob } from "./browser_ffi.mjs";
 
 const STORAGE_PERSIST_MILLISECONDS = 200;
 const CURRENT_ACCOUNT = "homestead:current-account";
+const watchers = new WeakMap();
 const HANDLE = "homestead:handle:";
 
 export function configure(clientId, redirectUri, directory) {
@@ -205,6 +206,15 @@ export function save(agent, path, filename) {
 export function forget(agent) {
   deleteStoredSession(agent.sub);
   localStorage.removeItem(HANDLE + agent.sub);
+}
+
+export function watch(agent, onExpired) {
+  watchers.set(agent, onExpired);
+}
+
+export function expire(agent) {
+  forget(agent);
+  watchers.get(agent)?.();
 }
 
 export function account(agent) {

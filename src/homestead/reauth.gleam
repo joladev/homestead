@@ -1,7 +1,9 @@
 import gleam/list
 import homestead/browser
 import homestead/dialog
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{
+  type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
+}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
@@ -36,12 +38,6 @@ type Method {
   Code
 }
 
-type Submission {
-  Idle
-  Sending
-  Refused(problem: Problem)
-}
-
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
   #(
     Model(
@@ -65,11 +61,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
 
 pub fn outcome(model: Model) -> Outcome {
   model.outcome
-}
-
-pub fn has_ended_session(model: Model) -> Bool {
-  remote.has_ended_session(model.methods)
-  || model.submission == Refused(tranquil.SessionEnded)
 }
 
 pub opaque type Message {
@@ -267,10 +258,7 @@ fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("InvalidPassword", _) -> "That password isn't right"
     tranquil.Refused("InvalidCode", _) -> "That code isn't right"
-    tranquil.Refused("RateLimitExceeded", _) ->
-      "Too many attempts. Try again later"
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }

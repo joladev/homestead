@@ -61,18 +61,6 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
   )
 }
 
-pub fn has_ended_session(model: Model) -> Bool {
-  let ended = tranquil.SessionEnded
-
-  remote.has_ended_session(model.controllers)
-  || case model.action {
-    Refused(problem:) -> problem == ended
-    Adding(lookup: LookupRefused(problem:), ..)
-    | Adding(lookup: AddRefused(problem:, ..), ..) -> problem == ended
-    Resting | Adding(..) | ConfirmingRemove(_) | Removing -> False
-  }
-}
-
 pub fn has_any(model: Model) -> Bool {
   case model.controllers {
     Loaded(value: [_, ..]) -> True
@@ -275,9 +263,8 @@ pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("ControllerNotFound", _) -> "No account by that name"
     tranquil.Refused("InvalidDelegation", message) if message != "" -> message
-    tranquil.Unreachable -> "Couldn't reach the server"
-    tranquil.Refused(_, _) | tranquil.NotUnderstood | tranquil.SessionEnded ->
-      "The server didn't accept that"
+    tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
+      tranquil.describe(problem)
   }
 }
 
