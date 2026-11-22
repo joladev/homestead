@@ -1,6 +1,8 @@
 import at/did.{type Did}
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, ChannelUsername, ContactPreferences, Discord, Email,
@@ -180,6 +182,24 @@ pub fn a_linked_account_names_its_provider_test() {
     ])
 }
 
+pub fn a_full_page_of_records_names_the_next_page_test() {
+  let record =
+    "{\"uri\":\"at://did:plc:abc/app.bsky.feed.post/3m5x7c2k4s2a\",
+      \"cid\":\"bafyrei\",\"value\":{}}"
+  let body =
+    "{\"records\":["
+    <> string.join(list.repeat(record, 50), ",")
+    <> "],\"cursor\":\"3m5x\"}"
+
+  let assert Ok(RecordPage(next:, ..)) =
+    tranquil.parse(
+      tranquil.records(account(), "app.bsky.feed.post", None),
+      body,
+    )
+
+  assert next == Some("3m5x")
+}
+
 pub fn a_listed_record_takes_its_key_from_its_address_test() {
   let body =
     "{\"records\":[{\"uri\":\"at://did:plc:abc/app.bsky.feed.post/3m5x7c2k4s2a\",
@@ -199,7 +219,7 @@ pub fn a_listed_record_takes_its_key_from_its_address_test() {
           preview: "{\"text\":\"Hello\"}",
         ),
       ],
-      next: Some("3m5x"),
+      next: None,
     ))
 }
 

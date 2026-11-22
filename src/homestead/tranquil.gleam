@@ -724,6 +724,8 @@ pub fn collections(account: Did) -> Query(List(String)) {
   )
 }
 
+const records_per_page = 50
+
 pub fn records(
   account: Did,
   collection: String,
@@ -731,7 +733,11 @@ pub fn records(
 ) -> Query(RecordPage) {
   let account = did.to_string(account)
 
-  let page = [#("repo", account), #("collection", collection), #("limit", "50")]
+  let page = [
+    #("repo", account),
+    #("collection", collection),
+    #("limit", int.to_string(records_per_page)),
+  ]
 
   query(
     "com.atproto.repo.listRecords",
@@ -741,9 +747,17 @@ pub fn records(
     },
     {
       use records <- decode.field("records", decode.list(record_decoder()))
-      use next <- optional_text("cursor")
+      use cursor <- optional_text("cursor")
 
-      decode.success(RecordPage(records:, next:))
+      decode.success(
+        RecordPage(
+          records:,
+          next: case list.length(records) < records_per_page {
+            True -> None
+            False -> cursor
+          },
+        ),
+      )
     },
   )
 }

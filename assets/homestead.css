@@ -485,6 +485,50 @@ h3 {
     color: var(--text-dim);
 }
 
+.collections {
+    row-gap: 0;
+    font-family: var(--font-code);
+}
+
+.row:has(> .details > .collections) > strong {
+    align-self: start;
+    padding-top: var(--space-2);
+}
+
+.row.record {
+    min-height: 44px;
+    text-decoration: none;
+}
+
+.row.record .name {
+    text-decoration: underline;
+}
+
+.row.record:hover {
+    background: var(--raised);
+}
+
+.row.record:focus-visible {
+    outline-offset: -2px;
+}
+
+.row.record > .details {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.row.record .when {
+    flex: none;
+    font-size: 15px;
+    white-space: nowrap;
+}
+
+.row.record .preview {
+    flex: 1;
+    min-width: 0;
+}
+
 .preview {
     display: block;
     overflow: hidden;

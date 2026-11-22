@@ -1,12 +1,19 @@
+import at/tid
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/time/calendar
+import gleam/time/duration.{type Duration}
+import gleam/time/timestamp.{type Timestamp}
 import gleam/uri
 import homestead/browser
 import homestead/confirmation
+import homestead/date
+import homestead/json_view
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
@@ -24,12 +31,22 @@ import modem
 
 const delete_button_id = "delete-record"
 
+const edit_button_id = "edit-record"
+
 const record_id = "record-json"
 
 const new_record_template = "{\n  \"$type\": \"\"\n}"
 
 pub opaque type Model {
-  Model(session: Session, place: Place)
+  Model(session: Session, local_offset: Duration, place: Place)
+}
+
+pub type CollectionGroup {
+  CollectionGroup(owner: String, collections: List(NamedCollection))
+}
+
+pub type NamedCollection {
+  NamedCollection(id: String, prefix: String, name: String)
 }
 
 type Place {
@@ -58,10 +75,10 @@ type More {
 }
 
 type Action {
+  Reading
   Editing
   NotJson
   Saving
-  Saved
   SaveRefused(problem: Problem)
   ConfirmingDelete
   Deleting
@@ -87,10 +104,11 @@ pub fn init(
   location: RepositoryLocation,
 ) -> #(Model, Effect(Message)) {
   let account = session.account(session)
+  let local_offset = calendar.local_offset()
 
   case location {
     Collections -> #(
-      Model(session:, place: AtCollections(collections: Loading)),
+      Model(session:, local_offset:, place: AtCollections(collections: Loading)),
       tranquil.load(
         session,
         tranquil.collections(account),
@@ -101,6 +119,7 @@ pub fn init(
     Records(collection:) -> #(
       Model(
         session:,
+        local_offset:,
         place: AtRecords(
           collection:,
           records: Loading,
@@ -118,12 +137,13 @@ pub fn init(
     Record(collection:, key:) -> #(
       Model(
         session:,
+        local_offset:,
         place: AtRecord(
           collection:,
           key:,
           record: Loading,
           text: "",
-          action: Editing,
+          action: Reading,
           copied: NothingCopied,
         ),
       ),
@@ -133,6 +153,7 @@ pub fn init(
     NewRecord(collection:) -> #(
       Model(
         session:,
+        local_offset:,
         place: AtNewRecord(
           collection:,
           key: "",
@@ -156,6 +177,8 @@ pub opaque type Message {
   ServerSavedRecord(result: Result(Nil, Problem))
   UserClickedCopy(text: String, copied: Copied)
   BrowserCopiedText(copied: Copied, result: Result(Nil, Nil))
+  UserClickedEdit
+  UserCancelledEdit
   UserClickedDelete
   UserCancelledDelete
   UserConfirmedDelete
@@ -251,6 +274,26 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
 
+    AtRecord(..) as place, UserClickedEdit -> #(
+      Model(..model, place: AtRecord(..place, action: Editing)),
+      browser.focus(record_id),
+    )
+
+    AtRecord(record:, ..) as place, UserCancelledEdit -> #(
+      Model(
+        ..model,
+        place: AtRecord(
+          ..place,
+          text: case record {
+            Loaded(value: record) -> record.json
+            Loading | Failed(_) -> ""
+          },
+          action: Reading,
+        ),
+      ),
+      browser.focus(edit_button_id),
+    )
+
     AtRecord(..) as place, UserEditedRecord(text:) -> #(
       Model(..model, place: AtRecord(..place, text:, action: Editing)),
       effect.none(),
@@ -274,7 +317,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     AtRecord(collection:, key:, ..) as place, ServerSavedRecord(result: Ok(Nil))
     -> #(
-      Model(..model, place: AtRecord(..place, action: Saved)),
+      Model(..model, place: AtRecord(..place, action: Reading)),
       load_record(session, collection, key),
     )
 
@@ -305,7 +348,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     AtRecord(..) as place, UserCancelledDelete -> #(
-      Model(..model, place: AtRecord(..place, action: Editing)),
+      Model(..model, place: AtRecord(..place, action: Reading)),
       browser.focus(delete_button_id),
     )
 
@@ -444,34 +487,46 @@ pub fn view(model: Model) -> Element(Message) {
         layout.path_section_with_actions(
           [top, html.text(collection)],
           [view_new_link(collection)],
-          [view_records(collection, records, next, more)],
+          [view_records(collection, records, next, more, model.local_offset)],
         )
 
       AtRecord(collection:, key:, record:, text:, action:, copied:) ->
         layout.path_section_with_actions(
           [top, link(Records(collection:), collection), html.text(key)],
           case record, action {
-            Loading, _ | Failed(_), _ | Loaded(_), ConfirmingDelete -> []
-            Loaded(_), Editing
-            | Loaded(_), NotJson
-            | Loaded(_), Saving
-            | Loaded(_), Saved
-            | Loaded(_), SaveRefused(_)
+            Loaded(_), Reading
             | Loaded(_), Deleting
             | Loaded(_), DeleteRefused(_)
             -> [
               html.button(
                 [
+                  attribute.id(edit_button_id),
+                  attribute.class("action"),
+                  attribute.disabled(action == Deleting),
+                  event.on_click(UserClickedEdit),
+                ],
+                [html.text("Edit")],
+              ),
+              html.button(
+                [
                   attribute.id(delete_button_id),
                   attribute.class("action"),
-                  attribute.disabled(action == Saving || action == Deleting),
+                  attribute.disabled(action == Deleting),
                   event.on_click(UserClickedDelete),
                 ],
                 [html.text("Delete")],
               ),
             ]
+            Loading, _
+            | Failed(_), _
+            | Loaded(_), ConfirmingDelete
+            | Loaded(_), Editing
+            | Loaded(_), NotJson
+            | Loaded(_), Saving
+            | Loaded(_), SaveRefused(_)
+            -> []
           },
-          [view_record(record, text, action, copied)],
+          [view_record(record, key, text, action, copied, model.local_offset)],
         )
 
       AtNewRecord(collection:, key:, text:, creation:) ->
@@ -497,22 +552,66 @@ fn view_new_link(collection: String) -> Element(Message) {
 }
 
 fn view_collections(collections: Remote(List(String))) -> Element(Message) {
-  layout.block(
-    list.flatten([
-      case collections {
-        Loading -> []
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: collections) ->
-          layout.listing(
-            empty: "No collections",
-            rows: list.map(collections, fn(collection) {
-              layout.wide_row([link(Records(collection:), collection)])
-            }),
-            actions: [],
-          )
-      },
-    ]),
-  )
+  layout.block(case collections {
+    Loading -> []
+    Failed(_) -> [layout.problem("Couldn't load")]
+    Loaded(value: []) -> [layout.note("No collections", [])]
+    Loaded(value: collections) ->
+      list.map(group_collections(collections), fn(group) {
+        layout.row(
+          tone: layout.Plain,
+          name: group.owner,
+          details: [
+            html.span(
+              [attribute.class("lines collections")],
+              list.map(group.collections, fn(collection) {
+                html.a(
+                  [
+                    route.href(
+                      Data(Repository(Records(collection: collection.id))),
+                    ),
+                  ],
+                  [layout.dim(collection.prefix), html.text(collection.name)],
+                )
+              }),
+            ),
+          ],
+          actions: [],
+        )
+      })
+  })
+}
+
+pub fn group_collections(ids: List(String)) -> List(CollectionGroup) {
+  list.map(ids, name_collection)
+  |> list.group(fn(named) { named.0 })
+  |> dict.to_list
+  |> list.sort(fn(one, other) { string.compare(one.0, other.0) })
+  |> list.map(fn(group) {
+    CollectionGroup(
+      owner: group.0,
+      collections: list.map(group.1, fn(named) { named.1 })
+        |> list.sort(fn(one, other) { string.compare(one.id, other.id) }),
+    )
+  })
+}
+
+fn name_collection(id: String) -> #(String, NamedCollection) {
+  case string.split(id, ".") {
+    [top, second, first, ..rest] -> #(
+      second <> "." <> top,
+      NamedCollection(
+        id:,
+        prefix: top <> "." <> second <> ".",
+        name: string.join([first, ..rest], "."),
+      ),
+    )
+    [] | [_] | [_, _] -> #(id, NamedCollection(id:, prefix: "", name: id))
+  }
+}
+
+pub fn written(key: String) -> Result(Timestamp, Nil) {
+  tid.from_string(key) |> result.map(tid.to_timestamp)
 }
 
 fn view_records(
@@ -520,6 +619,7 @@ fn view_records(
   records: Remote(List(RepoRecord)),
   next: Option(String),
   more: More,
+  local_offset: Duration,
 ) -> Element(Message) {
   layout.block(
     list.flatten([
@@ -530,14 +630,29 @@ fn view_records(
           layout.listing(
             empty: "No records",
             rows: list.map(records, fn(record) {
-              layout.linked_row(
-                to: route.href(
-                  Data(Repository(Record(collection:, key: record.key))),
-                ),
-                name: record.key,
-                details: [
-                  html.span([attribute.class("preview")], [
-                    html.text(string.slice(record.preview, 0, 200)),
+              html.a(
+                [
+                  attribute.class("row record"),
+                  route.href(
+                    Data(Repository(Record(collection:, key: record.key))),
+                  ),
+                ],
+                [
+                  html.span([attribute.class("name")], [html.text(record.key)]),
+                  html.span([attribute.class("details")], [
+                    case written(record.key) {
+                      Ok(time) ->
+                        html.span([attribute.class("dim when")], [
+                          html.text(date.describe_moment_with_year(
+                            time,
+                            local_offset,
+                          )),
+                        ])
+                      Error(Nil) -> element.none()
+                    },
+                    html.span([attribute.class("preview")], [
+                      html.text(string.slice(record.preview, 0, 200)),
+                    ]),
                   ]),
                 ],
               )
@@ -567,9 +682,11 @@ fn view_records(
 
 fn view_record(
   record: Remote(RepoRecord),
+  key: String,
   text: String,
   action: Action,
   copied: Copied,
+  local_offset: Duration,
 ) -> Element(Message) {
   layout.block(case record {
     Loading -> []
@@ -584,66 +701,91 @@ fn view_record(
             on_cancel: UserCancelledDelete,
             on_accept: UserConfirmedDelete,
           )
-        Editing
+        Reading
+        | Editing
         | NotJson
         | Saving
-        | Saved
         | SaveRefused(_)
         | Deleting
         | DeleteRefused(_) -> element.none()
       },
+      case written(key) {
+        Ok(time) ->
+          layout.row(
+            tone: layout.Plain,
+            name: "Created",
+            details: [
+              html.text(date.describe_moment_with_year(time, local_offset)),
+            ],
+            actions: [],
+          )
+        Error(Nil) -> element.none()
+      },
       view_copyable("Address", record.address, CopiedAddress, copied),
       view_copyable("Content ID", record.content_id, CopiedContentId, copied),
-      html.form([event.on_submit(fn(_) { UserSubmittedRecord })], [
-        layout.full_row([
-          html.textarea(
-            [
-              attribute.id(record_id),
-              attribute.class("editor"),
-              attribute.aria_label("Record"),
-              attribute.spellcheck(False),
-              attribute.autocomplete("off"),
-              attribute.disabled(action == Saving || action == Deleting),
-              event.on_input(UserEditedRecord),
-            ],
-            text,
-          ),
-        ]),
-        case action {
-          NotJson -> layout.problem("That isn't a JSON object")
-          SaveRefused(problem:) | DeleteRefused(problem:) ->
-            layout.problem(describe_refusal(problem))
-          Editing | Saving | Saved | ConfirmingDelete | Deleting ->
-            element.none()
-        },
-        layout.full_row([
-          html.div([attribute.class("inline")], [
-            html.button(
-              [
-                attribute.class("action primary"),
-                attribute.disabled(
-                  action == Saving
-                  || action == Deleting
-                  || action == ConfirmingDelete,
-                ),
-              ],
-              [html.text("Save")],
-            ),
-            case action {
-              Saved -> layout.dim("saved")
-              Editing
-              | NotJson
-              | Saving
-              | SaveRefused(_)
-              | ConfirmingDelete
-              | Deleting
-              | DeleteRefused(_) -> element.none()
-            },
-          ]),
-        ]),
-      ]),
+      case action {
+        Reading | ConfirmingDelete | Deleting ->
+          layout.full_row([json_view.view(record.json)])
+
+        DeleteRefused(problem:) ->
+          element.fragment([
+            layout.full_row([json_view.view(record.json)]),
+            layout.problem(describe_refusal(problem)),
+          ])
+
+        Editing | NotJson | Saving | SaveRefused(_) ->
+          view_record_editor(text, action)
+      },
     ]
   })
+}
+
+fn view_record_editor(text: String, action: Action) -> Element(Message) {
+  let is_saving = action == Saving
+
+  html.form([event.on_submit(fn(_) { UserSubmittedRecord })], [
+    layout.full_row([
+      html.textarea(
+        [
+          attribute.id(record_id),
+          attribute.class("editor"),
+          attribute.aria_label("Record"),
+          attribute.spellcheck(False),
+          attribute.autocomplete("off"),
+          attribute.disabled(is_saving),
+          event.on_input(UserEditedRecord),
+        ],
+        text,
+      ),
+    ]),
+    case action {
+      NotJson -> layout.problem("That isn't a JSON object")
+      SaveRefused(problem:) -> layout.problem(describe_refusal(problem))
+      Reading
+      | Editing
+      | Saving
+      | ConfirmingDelete
+      | Deleting
+      | DeleteRefused(_) -> element.none()
+    },
+    layout.full_row([
+      html.div([attribute.class("inline")], [
+        html.button(
+          [attribute.class("action primary"), attribute.disabled(is_saving)],
+          [html.text("Save")],
+        ),
+        html.button(
+          [
+            attribute.class("action"),
+            attribute.type_("button"),
+            attribute.disabled(is_saving),
+            event.on_click(UserCancelledEdit),
+          ],
+          [html.text("Cancel")],
+        ),
+      ]),
+    ]),
+  ])
 }
 
 fn view_copyable(
