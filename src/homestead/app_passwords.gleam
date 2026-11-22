@@ -37,6 +37,7 @@ type Revoking {
 }
 
 type Creation {
+  NotCreating
   Composing
   Creating
   CreationRefused(problem: Problem)
@@ -58,7 +59,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       revoking: NotRevoking,
       name: "",
       preset: FullAccess,
-      creation: Composing,
+      creation: NotCreating,
     ),
     load(session),
   )
@@ -78,6 +79,8 @@ pub fn departure(model: Model) -> Option(Departure) {
 
 pub opaque type Message {
   ServerReturnedPasswords(result: Result(List(AppPassword), Problem))
+  UserClickedNew
+  UserCancelledNew
   UserTypedName(name: String)
   UserPickedPreset(preset: Preset)
   UserSubmittedForm
@@ -103,6 +106,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         },
       ),
       effect.none(),
+    )
+
+    UserClickedNew -> #(
+      Model(..model, creation: Composing),
+      browser.focus(name_id),
+    )
+
+    UserCancelledNew -> #(
+      Model(..model, name: "", preset: FullAccess, creation: NotCreating),
+      browser.focus(new_button_id),
     )
 
     UserTypedName(name:) -> #(
@@ -157,10 +170,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
           ),
           effect.none(),
         )
-        Composing | Creating | CreationRefused(_) -> #(model, effect.none())
+        NotCreating | Composing | Creating | CreationRefused(_) -> #(
+          model,
+          effect.none(),
+        )
       }
 
-    UserClickedDone -> #(Model(..model, creation: Composing), effect.none())
+    UserClickedDone -> #(
+      Model(..model, creation: NotCreating),
+      browser.focus(new_button_id),
+    )
 
     UserClickedRevoke(password:) -> #(
       Model(..model, revoking: ConfirmingRevoke(password:)),
@@ -194,38 +213,64 @@ fn load(session: Session) -> Effect(Message) {
   tranquil.load(session, tranquil.app_passwords(), ServerReturnedPasswords)
 }
 
+const new_button_id = "new-app-password"
+
+const name_id = "app-password-name"
+
 fn revoke_button_id(password: AppPassword) -> String {
   "revoke-" <> password.name
 }
 
 pub fn view(model: Model) -> Element(Message) {
   layout.page([
-    layout.title_section("app-passwords", [
-      layout.block(
-        list.flatten([
-          case model.passwords {
-            Loading -> []
-            Failed(_) -> [layout.problem("Couldn't load")]
-            Loaded(value: []) -> [layout.note("No app passwords", [])]
-            Loaded(value: passwords) ->
-              list.map(passwords, view_password(_, model))
-          },
-          case model.revoking {
-            RevokeRefused(_) -> [
-              layout.problem("The server didn't revoke that"),
-            ]
-            NotRevoking | ConfirmingRevoke(_) | Revoking -> []
-          },
-        ]),
-      ),
-    ]),
-    layout.section("new", [
-      case model.creation {
-        Created(name:, password:, copying:) ->
-          view_created(name, password, copying)
-        Composing | Creating | CreationRefused(_) -> view_form(model)
+    layout.title_section_with_actions(
+      "app-passwords",
+      case model.passwords, model.creation {
+        Loaded(_), NotCreating -> [
+          html.button(
+            [
+              attribute.id(new_button_id),
+              attribute.class("action"),
+              event.on_click(UserClickedNew),
+            ],
+            [html.text("New app password")],
+          ),
+        ]
+        Loading, _
+        | Failed(_), _
+        | Loaded(_), Composing
+        | Loaded(_), Creating
+        | Loaded(_), CreationRefused(_)
+        | Loaded(_), Created(..)
+        -> []
       },
-    ]),
+      [
+        layout.block(
+          list.flatten([
+            case model.passwords {
+              Loading -> []
+              Failed(_) -> [layout.problem("Couldn't load")]
+              Loaded(value: []) -> [layout.note("No app passwords", [])]
+              Loaded(value: passwords) ->
+                list.map(passwords, view_password(_, model))
+            },
+            case model.revoking {
+              RevokeRefused(_) -> [
+                layout.problem("The server didn't revoke that"),
+              ]
+              NotRevoking | ConfirmingRevoke(_) | Revoking -> []
+            },
+            case model.creation {
+              NotCreating -> []
+              Created(name:, password:, copying:) -> [
+                view_created(name, password, copying),
+              ]
+              Composing | Creating | CreationRefused(_) -> [view_form(model)]
+            },
+          ]),
+        ),
+      ],
+    ),
   ])
 }
 
@@ -271,50 +316,48 @@ fn view_password(password: AppPassword, model: Model) -> Element(Message) {
 fn view_form(model: Model) -> Element(Message) {
   let is_creating = model.creation == Creating
 
-  html.form(
-    [attribute.class("block"), event.on_submit(fn(_) { UserSubmittedForm })],
-    [
-      layout.field(
-        html.label([attribute.for("app-password-name")], [html.text("Name")]),
-        html.input([
-          attribute.id("app-password-name"),
-          attribute.type_("text"),
-          attribute.value(model.name),
-          attribute.autocomplete("off"),
-          attribute.disabled(is_creating),
-          event.on_input(UserTypedName),
-        ]),
+  html.form([event.on_submit(fn(_) { UserSubmittedForm })], [
+    layout.field(
+      html.label([attribute.for(name_id)], [html.text("Name")]),
+      html.input([
+        attribute.id(name_id),
+        attribute.type_("text"),
+        attribute.value(model.name),
+        attribute.autocomplete("off"),
+        attribute.disabled(is_creating),
+        event.on_input(UserTypedName),
+      ]),
+    ),
+    layout.field(
+      html.span([attribute.id("permissions-label"), attribute.class("label")], [
+        html.text("Permissions"),
+      ]),
+      html.div(
+        [
+          attribute.class("choices"),
+          attribute.role("radiogroup"),
+          attribute.aria_labelledby("permissions-label"),
+        ],
+        list.map(permissions.presets, fn(preset) {
+          html.label([], [
+            html.input([
+              attribute.type_("radio"),
+              attribute.name("permissions"),
+              attribute.checked(preset == model.preset),
+              attribute.disabled(is_creating),
+              event.on_click(UserPickedPreset(preset)),
+            ]),
+            html.span([], [html.text(permissions.label(preset))]),
+          ])
+        }),
       ),
-      layout.field(
-        html.span(
-          [attribute.id("permissions-label"), attribute.class("label")],
-          [html.text("Permissions")],
-        ),
-        html.div(
-          [
-            attribute.class("choices"),
-            attribute.role("radiogroup"),
-            attribute.aria_labelledby("permissions-label"),
-          ],
-          list.map(permissions.presets, fn(preset) {
-            html.label([], [
-              html.input([
-                attribute.type_("radio"),
-                attribute.name("permissions"),
-                attribute.checked(preset == model.preset),
-                attribute.disabled(is_creating),
-                event.on_click(UserPickedPreset(preset)),
-              ]),
-              html.span([], [html.text(permissions.label(preset))]),
-            ])
-          }),
-        ),
-      ),
-      case model.creation {
-        CreationRefused(problem:) -> layout.problem(describe_refusal(problem))
-        Composing | Creating | Created(..) -> element.none()
-      },
-      layout.details_row([
+    ),
+    case model.creation {
+      CreationRefused(problem:) -> layout.problem(describe_refusal(problem))
+      NotCreating | Composing | Creating | Created(..) -> element.none()
+    },
+    layout.details_row([
+      html.div([attribute.class("inline")], [
         html.button(
           [
             attribute.class("action primary"),
@@ -322,9 +365,18 @@ fn view_form(model: Model) -> Element(Message) {
           ],
           [html.text("Create")],
         ),
+        html.button(
+          [
+            attribute.class("action"),
+            attribute.type_("button"),
+            attribute.disabled(is_creating),
+            event.on_click(UserCancelledNew),
+          ],
+          [html.text("Cancel")],
+        ),
       ]),
-    ],
-  )
+    ]),
+  ])
 }
 
 fn describe_refusal(problem: Problem) -> String {
@@ -343,30 +395,27 @@ fn view_created(
   password: String,
   copying: Copying,
 ) -> Element(Message) {
-  layout.block([
-    layout.row(
-      tone: layout.Plain,
-      name:,
-      details: [
-        html.code([], [html.text(password)]),
-        layout.dim(" \u{00B7} shown once"),
-      ],
-      actions: [
-        html.button(
-          [attribute.class("action"), event.on_click(UserClickedCopy(password))],
-          [
-            html.text(case copying {
-              NotCopied -> "Copy"
-              Copied -> "Copied"
-              CopyFailed -> "Couldn't copy"
-            }),
-          ],
-        ),
-        html.button(
-          [attribute.class("action"), event.on_click(UserClickedDone)],
-          [html.text("Done")],
-        ),
-      ],
-    ),
-  ])
+  layout.row(
+    tone: layout.Plain,
+    name:,
+    details: [
+      html.code([], [html.text(password)]),
+      layout.dim(" \u{00B7} shown once"),
+    ],
+    actions: [
+      html.button(
+        [attribute.class("action"), event.on_click(UserClickedCopy(password))],
+        [
+          html.text(case copying {
+            NotCopied -> "Copy"
+            Copied -> "Copied"
+            CopyFailed -> "Couldn't copy"
+          }),
+        ],
+      ),
+      html.button([attribute.class("action"), event.on_click(UserClickedDone)], [
+        html.text("Done"),
+      ]),
+    ],
+  )
 }

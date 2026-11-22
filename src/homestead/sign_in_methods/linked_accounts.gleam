@@ -134,9 +134,21 @@ pub fn describe_refusal(problem: Problem) -> String {
   }
 }
 
-pub fn view(model: Model) -> List(Element(Message)) {
+pub fn view_actions(model: Model) -> List(Element(message)) {
   let server = session.server(model.session)
 
+  [
+    html.a(
+      [
+        attribute.class("action"),
+        attribute.href("https://" <> server <> "/app/security"),
+      ],
+      [html.text("Link on " <> server)],
+    ),
+  ]
+}
+
+pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
@@ -150,13 +162,6 @@ pub fn view(model: Model) -> List(Element(Message)) {
           Refused(problem:) -> [layout.problem(describe_refusal(problem))]
           Resting | ConfirmingUnlink(_) | Unlinking -> []
         },
-        [
-          layout.note("Accounts are linked on " <> server, [
-            html.a([attribute.href("https://" <> server <> "/app/security")], [
-              html.text("Open " <> server),
-            ]),
-          ]),
-        ],
       ]),
     ),
   ]

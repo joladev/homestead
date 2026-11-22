@@ -238,9 +238,21 @@ pub fn describe_name(passkey: Passkey) -> String {
   }
 }
 
-pub fn view(model: Model) -> List(Element(Message)) {
+pub fn view_actions(model: Model) -> List(Element(message)) {
   let server = session.server(model.session)
 
+  [
+    html.a(
+      [
+        attribute.class("action"),
+        attribute.href("https://" <> server <> "/app/security"),
+      ],
+      [html.text("Add on " <> server)],
+    ),
+  ]
+}
+
+pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
@@ -258,13 +270,6 @@ pub fn view(model: Model) -> List(Element(Message)) {
           | Deleting(_)
           | SigningInAgain(..) -> []
         },
-        [
-          layout.note("Passkeys are added on " <> server, [
-            html.a([attribute.href("https://" <> server <> "/app/security")], [
-              html.text("Open " <> server),
-            ]),
-          ]),
-        ],
       ]),
     ),
     case model.action {

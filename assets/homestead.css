@@ -476,6 +476,10 @@ h3 {
     font-family: var(--font-code);
 }
 
+.row.full > .details {
+    grid-column: 1 / -1;
+}
+
 .row.note > .details {
     grid-column: 1 / span 2;
     color: var(--text-dim);
@@ -827,6 +831,26 @@ input {
 
 input::placeholder {
     color: var(--text-dim);
+}
+
+select {
+    min-height: var(--control);
+    padding: 0 var(--space-2);
+    background: var(--ground);
+    border: 1px solid var(--line-strong);
+    border-radius: 0;
+    color: var(--text-strong);
+    font: inherit;
+    font-size: 16px;
+}
+
+select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+select:disabled {
+    opacity: 0.6;
 }
 
 .button:focus-visible,

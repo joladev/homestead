@@ -87,7 +87,10 @@ pub opaque type Message {
   UserToggledMessage(index: Int)
   ServerReturnedLanguage(result: Result(Option(String), Problem))
   UserPickedLanguage(code: String)
-  ServerSavedLanguage(code: String, result: Result(Nil, Problem))
+  ServerSavedLanguage(
+    previous: Remote(Option(String)),
+    result: Result(Nil, Problem),
+  )
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
@@ -127,21 +130,21 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     UserPickedLanguage(code:) -> #(
-      Model(..model, saving_language: Saving),
+      Model(..model, language: Loaded(Some(code)), saving_language: Saving),
       tranquil.perform(
         model.session,
         tranquil.set_language(code),
-        ServerSavedLanguage(code, _),
+        ServerSavedLanguage(model.language, _),
       ),
     )
 
-    ServerSavedLanguage(code:, result: Ok(Nil)) -> #(
-      Model(..model, language: Loaded(Some(code)), saving_language: NotSaving),
+    ServerSavedLanguage(result: Ok(Nil), ..) -> #(
+      Model(..model, saving_language: NotSaving),
       effect.none(),
     )
 
-    ServerSavedLanguage(result: Error(problem), ..) -> #(
-      Model(..model, saving_language: SaveRefused(problem:)),
+    ServerSavedLanguage(previous:, result: Error(problem)) -> #(
+      Model(..model, language: previous, saving_language: SaveRefused(problem:)),
       effect.none(),
     )
 
@@ -204,7 +207,7 @@ pub fn view(model: Model) -> Element(Message) {
             tone: layout.Plain,
             name: "Messages",
             details: [
-              layout.choice(
+              layout.select(
                 id: "language",
                 label: "Language of messages",
                 options: languages,

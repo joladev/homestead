@@ -126,9 +126,11 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
 pub fn view(model: Model) -> Element(Message) {
   layout.page([
-    layout.title_section("passkeys", [
-      map(passkeys.view(model.passkeys), PasskeysProducedMessage),
-    ]),
+    layout.title_section_with_actions(
+      "passkeys",
+      passkeys.view_actions(model.passkeys),
+      [map(passkeys.view(model.passkeys), PasskeysProducedMessage)],
+    ),
     layout.section("authenticator", [
       map(authenticator.view(model.authenticator), AuthenticatorProducedMessage),
     ]),
@@ -140,12 +142,16 @@ pub fn view(model: Model) -> Element(Message) {
     ]),
     case linked_accounts.is_offered(model.linked_accounts) {
       True ->
-        layout.section("linked-accounts", [
-          map(
-            linked_accounts.view(model.linked_accounts),
-            LinkedAccountsProducedMessage,
-          ),
-        ])
+        layout.section_with_actions(
+          "linked-accounts",
+          linked_accounts.view_actions(model.linked_accounts),
+          [
+            map(
+              linked_accounts.view(model.linked_accounts),
+              LinkedAccountsProducedMessage,
+            ),
+          ],
+        )
       False -> element.none()
     },
     case older_apps.is_offered(model.older_apps) {

@@ -1,6 +1,6 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/set
+import gleam/set.{type Set}
 import gleam/string
 import homestead/read_only
 
@@ -55,6 +55,9 @@ pub fn describe(granted: Option(String)) -> String {
 }
 
 fn same(one: String, other: String) -> Bool {
-  set.from_list(string.split(one, " "))
-  == set.from_list(string.split(other, " "))
+  beyond_the_baseline(one) == beyond_the_baseline(other)
+}
+
+fn beyond_the_baseline(scopes: String) -> Set(String) {
+  set.from_list(string.split(scopes, " ")) |> set.delete("atproto")
 }

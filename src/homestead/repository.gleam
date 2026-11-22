@@ -468,8 +468,29 @@ pub fn view(model: Model) -> Element(Message) {
         )
 
       AtRecord(collection:, key:, record:, text:, action:, copied:) ->
-        layout.path_section(
+        layout.path_section_with_actions(
           [top, link(Records(collection:), collection), html.text(key)],
+          case record, action {
+            Loading, _ | Failed(_), _ | Loaded(_), ConfirmingDelete -> []
+            Loaded(_), Editing
+            | Loaded(_), NotJson
+            | Loaded(_), Saving
+            | Loaded(_), Saved
+            | Loaded(_), SaveRefused(_)
+            | Loaded(_), Deleting
+            | Loaded(_), DeleteRefused(_)
+            -> [
+              html.button(
+                [
+                  attribute.id(delete_button_id),
+                  attribute.class("action"),
+                  attribute.disabled(action == Saving || action == Deleting),
+                  event.on_click(UserClickedDelete),
+                ],
+                [html.text("Delete")],
+              ),
+            ]
+          },
           [view_record(record, text, action, copied)],
         )
 
@@ -574,10 +595,40 @@ fn view_record(
     Loading -> []
     Failed(_) -> [layout.problem("Couldn't load")]
     Loaded(value: record) -> [
+      case action {
+        ConfirmingDelete ->
+          confirmation.view(
+            question: "Delete?",
+            consequence: "The record is removed for good.",
+            accept: "Delete record",
+            on_cancel: UserCancelledDelete,
+            on_accept: UserConfirmedDelete,
+          )
+        Editing
+        | NotJson
+        | Saving
+        | Saved
+        | SaveRefused(_)
+        | Deleting
+        | DeleteRefused(_) -> element.none()
+      },
       view_copyable("Address", record.address, CopiedAddress, copied),
       view_copyable("Content ID", record.content_id, CopiedContentId, copied),
       html.form([event.on_submit(fn(_) { UserSubmittedRecord })], [
-        view_editor(text, action == Saving || action == Deleting),
+        layout.full_row([
+          html.textarea(
+            [
+              attribute.id(record_id),
+              attribute.class("editor"),
+              attribute.aria_label("Record"),
+              attribute.spellcheck(False),
+              attribute.autocomplete("off"),
+              attribute.disabled(action == Saving || action == Deleting),
+              event.on_input(UserEditedRecord),
+            ],
+            text,
+          ),
+        ]),
         case action {
           NotJson -> layout.problem("That isn't a JSON object")
           SaveRefused(problem:) | DeleteRefused(problem:) ->
@@ -585,55 +636,31 @@ fn view_record(
           Editing | Saving | Saved | ConfirmingDelete | Deleting ->
             element.none()
         },
-        case action {
-          ConfirmingDelete ->
-            confirmation.view(
-              question: "Delete?",
-              consequence: "The record is removed for good.",
-              accept: "Delete record",
-              on_cancel: UserCancelledDelete,
-              on_accept: UserConfirmedDelete,
-            )
-
-          Editing
-          | NotJson
-          | Saving
-          | Saved
-          | SaveRefused(_)
-          | Deleting
-          | DeleteRefused(_) ->
-            layout.details_row([
-              html.div([attribute.class("inline")], [
-                html.button(
-                  [
-                    attribute.class("action primary"),
-                    attribute.disabled(action == Saving || action == Deleting),
-                  ],
-                  [html.text("Save")],
+        layout.full_row([
+          html.div([attribute.class("inline")], [
+            html.button(
+              [
+                attribute.class("action primary"),
+                attribute.disabled(
+                  action == Saving
+                  || action == Deleting
+                  || action == ConfirmingDelete,
                 ),
-                html.button(
-                  [
-                    attribute.id(delete_button_id),
-                    attribute.class("action"),
-                    attribute.type_("button"),
-                    attribute.disabled(action == Saving || action == Deleting),
-                    event.on_click(UserClickedDelete),
-                  ],
-                  [html.text("Delete")],
-                ),
-                case action {
-                  Saved -> layout.dim("saved")
-                  Editing
-                  | NotJson
-                  | Saving
-                  | SaveRefused(_)
-                  | ConfirmingDelete
-                  | Deleting
-                  | DeleteRefused(_) -> element.none()
-                },
-              ]),
-            ])
-        },
+              ],
+              [html.text("Save")],
+            ),
+            case action {
+              Saved -> layout.dim("saved")
+              Editing
+              | NotJson
+              | Saving
+              | SaveRefused(_)
+              | ConfirmingDelete
+              | Deleting
+              | DeleteRefused(_) -> element.none()
+            },
+          ]),
+        ]),
       ]),
     ]
   })

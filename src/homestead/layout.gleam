@@ -152,6 +152,12 @@ pub fn wide_row(content: List(Element(message))) -> Element(message) {
   ])
 }
 
+pub fn full_row(content: List(Element(message))) -> Element(message) {
+  html.div([attribute.class("row full")], [
+    html.span([attribute.class("details")], content),
+  ])
+}
+
 pub fn details_row(details: List(Element(message))) -> Element(message) {
   html.div([attribute.class("row")], [
     html.span([attribute.class("details")], details),
@@ -275,6 +281,32 @@ pub fn choice(
           event.on_click(on_pick(value)),
         ],
         [html.text(text)],
+      )
+    }),
+  )
+}
+
+pub fn select(
+  id id: String,
+  label label: String,
+  options options: List(#(String, String)),
+  picked picked: String,
+  is_disabled is_disabled: Bool,
+  on_pick on_pick: fn(String) -> message,
+) -> Element(message) {
+  html.select(
+    [
+      attribute.id(id),
+      attribute.aria_label(label),
+      attribute.disabled(is_disabled),
+      event.on_change(on_pick),
+    ],
+    list.map(options, fn(option) {
+      let #(value, text) = option
+
+      html.option(
+        [attribute.value(value), attribute.selected(value == picked)],
+        text,
       )
     }),
   )
