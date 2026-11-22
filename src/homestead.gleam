@@ -1,6 +1,7 @@
 import gleam/javascript/promise
 import gleam/option.{None, Some}
 import gleam/uri.{type Uri, Uri}
+import homestead/about
 import homestead/dashboard
 import homestead/route.{Overview}
 import homestead/session.{type Session}
@@ -52,6 +53,7 @@ type State {
   SignedOut(sign_in: sign_in.Model)
   SigningUp(sign_up: sign_up.Model)
   SignedIn(dashboard: dashboard.Model)
+  ReadingAbout
 }
 
 fn init(start: Start) -> #(Model, Effect(Message)) {
@@ -66,6 +68,7 @@ fn init(start: Start) -> #(Model, Effect(Message)) {
       SignedOut(sign_in.init(directory) |> sign_in.report_incomplete_sign_in),
       show_overview(),
     )
+    False, _ if location.path == about.path -> #(ReadingAbout, effect.none())
     False, _ -> #(Restoring(location:), restore_session())
   }
 
@@ -105,6 +108,16 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         effect.map(effect, SignUpProducedMessage),
       )
     }
+
+    _, UserNavigatedTo(uri:) if uri.path == about.path -> #(
+      Model(..model, state: ReadingAbout),
+      effect.none(),
+    )
+
+    ReadingAbout, UserNavigatedTo(uri:) -> #(
+      Model(..model, state: Restoring(location: uri)),
+      restore_session(),
+    )
 
     SignedOut(_), UserNavigatedTo(uri:) | SigningUp(_), UserNavigatedTo(uri:) -> #(
       Model(..model, state: signed_out(uri, sign_in)),
@@ -179,6 +192,11 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | SignedOut(_), BrowserRestoredSession(_)
     | SignedOut(_), ServerIssuedSession(_)
     | SignedOut(_), SignUpProducedMessage(_)
+    | ReadingAbout, SignInProducedMessage(_)
+    | ReadingAbout, SignUpProducedMessage(_)
+    | ReadingAbout, BrowserRestoredSession(_)
+    | ReadingAbout, ServerIssuedSession(_)
+    | ReadingAbout, DashboardProducedMessage(_)
     | SigningUp(_), SignInProducedMessage(_)
     | SigningUp(_), BrowserRestoredSession(_)
     | SigningUp(_), ServerIssuedSession(_)
@@ -253,6 +271,8 @@ fn view(model: Model) -> Element(Message) {
 
     SigningUp(sign_up:) ->
       sign_up.view(sign_up) |> element.map(SignUpProducedMessage)
+
+    ReadingAbout -> about.view()
 
     SignedIn(dashboard:) ->
       dashboard.view(dashboard) |> element.map(DashboardProducedMessage)

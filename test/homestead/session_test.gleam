@@ -1,3 +1,5 @@
+import gleam/dynamic/decode
+import gleam/json
 import gleam/list
 import gleam/option.{Some}
 import gleam/uri.{Uri}
@@ -23,3 +25,23 @@ pub fn hosted_app_is_a_web_client_test() {
       redirect_uri: "https://homestead.example/oauth/callback",
     )
 }
+
+pub fn the_hosted_client_file_matches_what_the_app_sends_test() {
+  let assert Ok(app) = uri.parse("https://homestead.at/")
+  let Client(id:, redirect_uri:) = session.client(app)
+  let assert Ok(#(file_id, file_redirects, file_scope)) =
+    json.parse(read("assets/oauth-client-metadata.json"), {
+      use id <- decode.field("client_id", decode.string)
+      use redirects <- decode.field("redirect_uris", decode.list(decode.string))
+      use scope <- decode.field("scope", decode.string)
+
+      decode.success(#(id, redirects, scope))
+    })
+
+  assert file_id == id
+  assert file_redirects == [redirect_uri]
+  assert file_scope == session.scope()
+}
+
+@external(javascript, "./file_ffi.mjs", "read")
+fn read(path: String) -> String

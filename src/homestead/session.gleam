@@ -150,7 +150,7 @@ pub fn server(session: Session) -> String
 @external(javascript, "./session_ffi.mjs", "origin")
 pub fn origin(session: Session) -> String
 
-fn scope() -> String {
+pub fn scope() -> String {
   string.join(scopes, " ")
 }
 

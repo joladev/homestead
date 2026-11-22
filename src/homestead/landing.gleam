@@ -15,8 +15,14 @@ pub fn view(content: List(Element(message))) -> Element(message) {
         ]),
       ]),
       html.ul([attribute.class("assurances")], [
-        html.li([], [html.text("Lorem ipsum dolor sit amet")]),
-        html.li([], [html.text("Consectetur adipiscing elit")]),
+        html.li([], [
+          html.a([attribute.href("https://tangled.org/jola.dev/homestead")], [
+            html.text("Set up your own homestead."),
+          ]),
+        ]),
+        html.li([], [
+          html.a([attribute.href("/about")], [html.text("Learn more.")]),
+        ]),
       ]),
     ]),
     html.main([attribute.class("sign-in")], [html.div([], content)]),
