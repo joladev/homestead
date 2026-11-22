@@ -753,6 +753,25 @@ pub fn perform(
   Nil
 }
 
+pub fn save_repository(
+  session: Session,
+  filename: String,
+  to_message: fn(Result(Nil, Problem)) -> message,
+) -> Effect(message) {
+  use dispatch <- effect.from
+
+  let path =
+    "/xrpc/com.atproto.sync.getRepo?"
+    <> uri.query_to_string([#("did", session.account(session))])
+
+  session.save(session, path, filename)
+  |> promise.tap(fn(response) {
+    dispatch(to_message(accepted(session, response) |> result.replace(Nil)))
+  })
+
+  Nil
+}
+
 fn accepted(
   session: Session,
   response: Result(#(Int, String), session.Problem),

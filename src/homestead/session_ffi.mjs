@@ -99,6 +99,28 @@ export function post(agent, path, body) {
   });
 }
 
+export function save(agent, path, filename) {
+  return attempt(async () => {
+    const response = await agent.handle(path);
+
+    if (!response.ok) {
+      return [response.status, await response.text()];
+    }
+
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    return [response.status, ""];
+  });
+}
+
 export function forget(agent) {
   deleteStoredSession(agent.sub);
 }

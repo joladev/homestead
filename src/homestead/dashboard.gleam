@@ -6,6 +6,7 @@ import gleam/option.{type Option, None, Some}
 import homestead/app_passwords
 import homestead/browser
 import homestead/connected_apps
+import homestead/export
 import homestead/notifications
 import homestead/overview
 import homestead/profile
@@ -45,6 +46,7 @@ type Page {
   ProfilePage(profile.Model)
   NotificationsPage(notifications.Model)
   SignInMethodsPage(sign_in_methods.Model)
+  ExportPage(export.Model)
   PlaceholderPage
 }
 
@@ -131,7 +133,13 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       )
     }
 
-    Data(_) | Advanced(_) | Admin | NotFound(_) -> #(
+    Data(route.Export) -> {
+      let #(page, effect) = export.init(session)
+
+      #(ExportPage(page), effect.map(effect, ExportProducedMessage))
+    }
+
+    Data(route.Repository) | Advanced(_) | Admin | NotFound(_) -> #(
       PlaceholderPage,
       effect.none(),
     )
@@ -147,6 +155,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     ProfilePage(page) -> profile.departure(page)
     NotificationsPage(page) -> notifications.departure(page)
     SignInMethodsPage(page) -> sign_in_methods.departure(page)
+    ExportPage(page) -> export.departure(page)
     PlaceholderPage -> None
   }
 
@@ -166,6 +175,7 @@ pub opaque type Message {
   ProfileProducedMessage(profile.Message)
   NotificationsProducedMessage(notifications.Message)
   SignInMethodsProducedMessage(sign_in_methods.Message)
+  ExportProducedMessage(export.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -250,8 +260,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    ExportProducedMessage(message), ExportPage(page) -> {
+      let #(page, effect) = export.update(page, message)
+
+      #(
+        Model(..model, page: ExportPage(page)),
+        effect.map(effect, ExportProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | ExportProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
     | SessionsProducedMessage(_), _
@@ -364,6 +384,9 @@ pub fn view(model: Model) -> Element(Message) {
       SignInMethodsPage(page) ->
         sign_in_methods.view(page)
         |> element.map(SignInMethodsProducedMessage)
+
+      ExportPage(page) ->
+        export.view(page) |> element.map(ExportProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

@@ -114,7 +114,7 @@ pub fn label(route: Route) -> String {
     Access(Sessions) -> "Sessions"
     Access(ConnectedApps) -> "Connected apps"
     Access(AppPasswords) -> "App passwords"
-    Data(Export) -> "Export and move"
+    Data(Export) -> "Export"
     Data(Repository) -> "Repository"
     Advanced(Delegation) -> "Delegation"
     Advanced(IdentityDocument) -> "Identity document"

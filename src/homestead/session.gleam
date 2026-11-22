@@ -99,6 +99,15 @@ pub fn post(
   do_post(session, path, body) |> promise.map(result.map_error(_, problem))
 }
 
+pub fn save(
+  session: Session,
+  path: String,
+  filename: String,
+) -> Promise(Result(#(Int, String), Problem)) {
+  do_save(session, path, filename)
+  |> promise.map(result.map_error(_, problem))
+}
+
 @external(javascript, "./session_ffi.mjs", "forget")
 pub fn forget(session: Session) -> Nil
 
@@ -150,4 +159,11 @@ fn do_post(
   session: Session,
   path: String,
   body: String,
+) -> Promise(Result(#(Int, String), String))
+
+@external(javascript, "./session_ffi.mjs", "save")
+fn do_save(
+  session: Session,
+  path: String,
+  filename: String,
 ) -> Promise(Result(#(Int, String), String))
