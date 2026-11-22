@@ -1,6 +1,7 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import homestead/browser
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Departure, type Session}
@@ -34,7 +35,19 @@ type Submission {
 }
 
 type HandleForm {
-  HandleForm(name: String, domain: Domain, submission: Submission)
+  HandleForm(
+    name: String,
+    domain: Domain,
+    submission: Submission,
+    copied: Copied,
+  )
+}
+
+type Copied {
+  NothingCopied
+  CopiedRecord
+  CopiedFileContent
+  CopyFailed
 }
 
 type Domain {
@@ -79,7 +92,12 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       session:,
       account: Loading,
       server: Loading,
-      handle: HandleForm(name: "", domain: OwnDomain, submission: Idle),
+      handle: HandleForm(
+        name: "",
+        domain: OwnDomain,
+        submission: Idle,
+        copied: NothingCopied,
+      ),
       verification: Verification(
         code: "",
         submission: Idle,
@@ -130,6 +148,8 @@ pub opaque type Message {
   UserPickedDomain(domain: Domain)
   UserSubmittedHandle
   ServerChangedHandle(result: Result(Nil, Problem))
+  UserClickedCopy(text: String, copied: Copied)
+  BrowserCopiedText(copied: Copied, result: Result(Nil, Nil))
   UserClickedResend
   ServerResentVerification(result: Result(Nil, Problem))
   UserTypedVerificationCode(code: String)
@@ -230,6 +250,22 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       Model(
         ..model,
         handle: HandleForm(..model.handle, submission: Refused(problem:)),
+      ),
+      effect.none(),
+    )
+
+    UserClickedCopy(text:, copied:) -> #(
+      model,
+      browser.copy(text, BrowserCopiedText(copied, _)),
+    )
+
+    BrowserCopiedText(copied:, result:) -> #(
+      Model(
+        ..model,
+        handle: HandleForm(..model.handle, copied: case result {
+          Ok(Nil) -> copied
+          Error(Nil) -> CopyFailed
+        }),
       ),
       effect.none(),
     )
@@ -514,8 +550,11 @@ pub fn describe_refusal(problem: Problem) -> String {
   case problem {
     tranquil.Refused("InvalidHandle", message) if message != "" -> message
     tranquil.Refused("HandleTaken", _) -> "That handle is taken"
-    tranquil.Refused("HandleNotAvailable", _) ->
-      "That domain doesn't point at this account"
+    tranquil.Refused("HandleNotAvailable", message) ->
+      case message {
+        "Handle points to different DID" <> _ -> message
+        _ -> "No DNS record or file found for that domain"
+      }
     tranquil.Refused("InvalidEmail", _) -> "That isn't a valid email address"
     tranquil.Refused("EmailTaken", _) -> "That email is already in use"
     tranquil.Refused("TokenRequired", _) -> "Enter the code first"
@@ -543,7 +582,12 @@ pub fn view(model: Model) -> Element(Message) {
     Loaded(value: account) ->
       layout.page([
         layout.title_section("handle", [
-          view_handle(model.handle, account, model.server),
+          view_handle(
+            model.handle,
+            account,
+            model.server,
+            session.account(model.session),
+          ),
         ]),
         layout.section("email", [
           view_email(model.verification, model.email, account),
@@ -571,6 +615,7 @@ fn view_handle(
   form: HandleForm,
   account: Account,
   server: Remote(Server),
+  did: String,
 ) -> Element(Message) {
   let domains = case server {
     Loaded(value: server) ->
@@ -624,11 +669,72 @@ fn view_handle(
           ),
         ]),
       ),
+      case form.domain {
+        OwnDomain -> view_domain_setup(form, did)
+        ServerDomain(_) -> element.none()
+      },
       view_refusal(form.submission),
       layout.details_row([
         view_submit("Change", form.submission, string.trim(form.name) == ""),
       ]),
     ]),
+  ])
+}
+
+fn view_domain_setup(form: HandleForm, did: String) -> Element(Message) {
+  let domain = case string.trim(form.name) {
+    "" -> "yourdomain.com"
+    name -> name
+  }
+  let record = "did=" <> did
+  let code = fn(text: String) {
+    html.code([attribute.class("long")], [html.text(text)])
+  }
+  let note = fn(kind: Copied) {
+    case form.copied {
+      CopyFailed -> layout.dim(" couldn't copy")
+      copied if copied == kind -> layout.dim(" copied")
+      NothingCopied | CopiedRecord | CopiedFileContent -> element.none()
+    }
+  }
+  let copy = fn(text: String, kind: Copied) {
+    html.button(
+      [
+        attribute.class("action"),
+        attribute.type_("button"),
+        event.on_click(UserClickedCopy(text, kind)),
+      ],
+      [html.text("Copy")],
+    )
+  }
+
+  element.fragment([
+    layout.row(
+      tone: layout.Plain,
+      name: "DNS record",
+      details: [
+        html.span([attribute.class("lines")], [
+          html.span([], [html.text("TXT "), code("_atproto." <> domain)]),
+          html.span([], [code(record), note(CopiedRecord)]),
+        ]),
+      ],
+      actions: [copy(record, CopiedRecord)],
+    ),
+    layout.row(
+      tone: layout.Plain,
+      name: "Or a file",
+      details: [
+        html.span([attribute.class("lines")], [
+          code("https://" <> domain <> "/.well-known/atproto-did"),
+          html.span([], [
+            html.text("containing "),
+            code(did),
+            note(CopiedFileContent),
+          ]),
+        ]),
+      ],
+      actions: [copy(did, CopiedFileContent)],
+    ),
   ])
 }
 
