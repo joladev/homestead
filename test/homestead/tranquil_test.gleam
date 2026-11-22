@@ -3,8 +3,8 @@ import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, ChannelUsername, ContactPreferences, LinkedAccount,
-  LogEntry, LogPage, OtherSoftware, Passkey, RecordPage, RememberedApp,
-  RepoRecord, SentMessage, Server, Tranquil,
+  LogEntry, LogPage, MediaPage, OtherSoftware, Passkey, RecordPage,
+  RememberedApp, RepoRecord, SentMessage, Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -209,5 +209,16 @@ pub fn a_delegation_log_page_carries_its_total_test() {
         ),
       ],
       total: 23,
+    ))
+}
+
+pub fn a_page_of_media_names_the_next_page_test() {
+  assert tranquil.parse(
+      tranquil.media("did:plc:k4q7m2x3vt5hwz6r2ypbn7cs", None),
+      "{\"cids\":[\"bafkreiaaa\",\"bafkreibbb\"],\"cursor\":\"bafkreibbb\"}",
+    )
+    == Ok(MediaPage(
+      media: ["bafkreiaaa", "bafkreibbb"],
+      next: Some("bafkreibbb"),
     ))
 }

@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "@atcute/identity-resolver": "^2.0.2",
-    "@atcute/oauth-browser-client": "^5.1.0"
+    "@atcute/oauth-browser-client": "^5.1.0",
+    "client-zip": "^2.5.1"
   }
 }

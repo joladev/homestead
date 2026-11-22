@@ -15,6 +15,7 @@ import {
   listStoredSessions,
 } from "@atcute/oauth-browser-client";
 import { Result$Error, Result$Ok } from "../gleam.mjs";
+import { saveBlob } from "./browser_ffi.mjs";
 
 const STORAGE_PERSIST_MILLISECONDS = 200;
 const CURRENT_ACCOUNT = "homestead:current-account";
@@ -195,15 +196,7 @@ export function save(agent, path, filename) {
       return [response.status, await response.text()];
     }
 
-    const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    saveBlob(await response.blob(), filename);
 
     return [response.status, ""];
   });

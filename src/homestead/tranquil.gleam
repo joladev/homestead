@@ -215,6 +215,10 @@ pub type ServerPage {
   )
 }
 
+pub type MediaPage {
+  MediaPage(media: List(String), next: Option(String))
+}
+
 pub type AuthenticatorSetup {
   AuthenticatorSetup(secret: String, qr_image: String)
 }
@@ -543,6 +547,24 @@ pub fn server_page() -> Query(ServerPage) {
 
 pub fn signal_linked() -> Query(Bool) {
   query("_admin.getSignalStatus", [], decode.at(["linked"], decode.bool))
+}
+
+pub fn media(account: String, after: Option(String)) -> Query(MediaPage) {
+  let page = [#("did", account), #("limit", "1000")]
+
+  query(
+    "com.atproto.sync.listBlobs",
+    case after {
+      Some(cursor) -> list.append(page, [#("cursor", cursor)])
+      None -> page
+    },
+    {
+      use media <- decode.field("cids", decode.list(decode.string))
+      use next <- optional_text("cursor")
+
+      decode.success(MediaPage(media:, next:))
+    },
+  )
 }
 
 pub fn controllers() -> Query(List(Controller)) {
