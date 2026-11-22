@@ -4,6 +4,10 @@ export function focus(id) {
   document.getElementById(id)?.focus();
 }
 
+export function openDialog(id) {
+  document.getElementById(id)?.showModal();
+}
+
 export async function copy(text) {
   try {
     await navigator.clipboard.writeText(text);

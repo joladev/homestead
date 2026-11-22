@@ -3,7 +3,7 @@ import gleam/option.{None, Some}
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, ChannelUsername, ContactPreferences, OtherSoftware,
-  RememberedApp, SentMessage, Server, Tranquil,
+  Passkey, RememberedApp, SentMessage, Server, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -127,6 +127,23 @@ pub fn a_sent_message_without_a_subject_has_none_test() {
         status: "sent",
         subject: None,
         body: "Verified",
+      ),
+    ])
+}
+
+pub fn a_passkey_that_was_never_used_has_no_last_use_test() {
+  let body =
+    "{\"passkeys\":[{\"id\":\"6cfb44c0\",\"credentialId\":\"aG9t\",
+      \"friendlyName\":null,\"createdAt\":\"2026-11-21T19:04:36+00:00\",
+      \"lastUsed\":null}]}"
+
+  assert tranquil.parse(tranquil.passkeys(), body)
+    == Ok([
+      Passkey(
+        id: "6cfb44c0",
+        name: None,
+        created: timestamp.from_unix_seconds(1_795_287_876),
+        last_used: None,
       ),
     ])
 }

@@ -16,6 +16,7 @@ import homestead/route.{
 }
 import homestead/session.{type Departure, type Session}
 import homestead/sessions
+import homestead/sign_in_methods
 import homestead/tranquil.{type Problem}
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
@@ -43,6 +44,7 @@ type Page {
   AppPasswordsPage(app_passwords.Model)
   ProfilePage(profile.Model)
   NotificationsPage(notifications.Model)
+  SignInMethodsPage(sign_in_methods.Model)
   PlaceholderPage
 }
 
@@ -120,7 +122,16 @@ fn open(session: Session, route: Route) -> #(Page, Effect(Message)) {
       )
     }
 
-    Access(SignInMethods) | Data(_) | Advanced(_) | Admin | NotFound(_) -> #(
+    Access(SignInMethods) -> {
+      let #(page, effect) = sign_in_methods.init(session)
+
+      #(
+        SignInMethodsPage(page),
+        effect.map(effect, SignInMethodsProducedMessage),
+      )
+    }
+
+    Data(_) | Advanced(_) | Admin | NotFound(_) -> #(
       PlaceholderPage,
       effect.none(),
     )
@@ -135,6 +146,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     AppPasswordsPage(page) -> app_passwords.departure(page)
     ProfilePage(page) -> profile.departure(page)
     NotificationsPage(page) -> notifications.departure(page)
+    SignInMethodsPage(page) -> sign_in_methods.departure(page)
     PlaceholderPage -> None
   }
 
@@ -153,6 +165,7 @@ pub opaque type Message {
   AppPasswordsProducedMessage(app_passwords.Message)
   ProfileProducedMessage(profile.Message)
   NotificationsProducedMessage(notifications.Message)
+  SignInMethodsProducedMessage(sign_in_methods.Message)
   UserToggledMenu
   UserDismissedMenu
   UserToggledAccountMenu
@@ -228,8 +241,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    SignInMethodsProducedMessage(message), SignInMethodsPage(page) -> {
+      let #(page, effect) = sign_in_methods.update(page, message)
+
+      #(
+        Model(..model, page: SignInMethodsPage(page)),
+        effect.map(effect, SignInMethodsProducedMessage),
+      )
+    }
+
     OverviewProducedMessage(_), _
     | ProfileProducedMessage(_), _
+    | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
     | SessionsProducedMessage(_), _
     | ConnectedAppsProducedMessage(_), _
@@ -337,6 +360,10 @@ pub fn view(model: Model) -> Element(Message) {
 
       NotificationsPage(page) ->
         notifications.view(page) |> element.map(NotificationsProducedMessage)
+
+      SignInMethodsPage(page) ->
+        sign_in_methods.view(page)
+        |> element.map(SignInMethodsProducedMessage)
 
       PlaceholderPage ->
         html.main([attribute.class("page")], view_placeholder(model.route))

@@ -82,7 +82,16 @@ pub type ChannelUsername {
 }
 
 pub type Passkey {
-  Passkey(id: String, name: Option(String))
+  Passkey(
+    id: String,
+    name: Option(String),
+    created: Timestamp,
+    last_used: Option(Timestamp),
+  )
+}
+
+pub type AuthenticatorSetup {
+  AuthenticatorSetup(secret: String, qr_image: String)
 }
 
 pub type Authenticator {
@@ -266,8 +275,13 @@ pub fn passkeys() -> Query(List(Passkey)) {
       decode.list({
         use id <- decode.field("id", decode.string)
         use name <- decode.field("friendlyName", decode.optional(decode.string))
+        use created <- decode.field("createdAt", timestamp_decoder())
+        use last_used <- decode.field(
+          "lastUsed",
+          decode.optional(timestamp_decoder()),
+        )
 
-        decode.success(Passkey(id:, name:))
+        decode.success(Passkey(id:, name:, created:, last_used:))
       })
     }),
   )
@@ -290,6 +304,14 @@ pub fn has_password() -> Query(Bool) {
     "_account.getPasswordStatus",
     [],
     decode.at(["hasPassword"], decode.bool),
+  )
+}
+
+pub fn sign_in_again_methods() -> Query(List(String)) {
+  query(
+    "_account.getReauthStatus",
+    [],
+    decode.at(["availableMethods"], decode.list(decode.string)),
   )
 }
 
@@ -358,14 +380,101 @@ pub fn create_app_password(
     None -> [#("name", json.string(name))]
   }
 
-  Command(
-    path: "/xrpc/com.atproto.server.createAppPassword",
-    body: json.object(body),
-    read: fn(answer) {
-      json.parse(answer, decode.at(["password"], decode.string))
-      |> result.replace_error(NotUnderstood)
-    },
+  command_returning(
+    "com.atproto.server.createAppPassword",
+    json.object(body),
+    decode.at(["password"], decode.string),
   )
+}
+
+pub fn rename_passkey(id: String, name: String) -> Command(Nil) {
+  command(
+    "com.atproto.server.updatePasskey",
+    json.object([
+      #("id", json.string(id)),
+      #("friendlyName", json.string(name)),
+    ]),
+  )
+}
+
+pub fn delete_passkey(id: String) -> Command(Nil) {
+  command(
+    "com.atproto.server.deletePasskey",
+    json.object([#("id", json.string(id))]),
+  )
+}
+
+pub fn prepare_authenticator() -> Command(AuthenticatorSetup) {
+  command_returning("com.atproto.server.createTotpSecret", json.object([]), {
+    use secret <- decode.field("secret", decode.string)
+    use qr_image <- decode.field("qrBase64", decode.string)
+
+    decode.success(AuthenticatorSetup(secret:, qr_image:))
+  })
+}
+
+pub fn enable_authenticator(code: String) -> Command(List(String)) {
+  command_returning(
+    "com.atproto.server.enableTotp",
+    json.object([#("code", json.string(code))]),
+    backup_codes_decoder(),
+  )
+}
+
+pub fn disable_authenticator(password: String, code: String) -> Command(Nil) {
+  command(
+    "com.atproto.server.disableTotp",
+    json.object([
+      #("password", json.string(password)),
+      #("code", json.string(code)),
+    ]),
+  )
+}
+
+pub fn replace_backup_codes(
+  password: String,
+  code: String,
+) -> Command(List(String)) {
+  command_returning(
+    "com.atproto.server.regenerateBackupCodes",
+    json.object([
+      #("password", json.string(password)),
+      #("code", json.string(code)),
+    ]),
+    backup_codes_decoder(),
+  )
+}
+
+pub fn change_password(current: String, new: String) -> Command(Nil) {
+  command(
+    "_account.changePassword",
+    json.object([
+      #("currentPassword", json.string(current)),
+      #("newPassword", json.string(new)),
+    ]),
+  )
+}
+
+pub fn set_password(new: String) -> Command(Nil) {
+  command(
+    "_account.setPassword",
+    json.object([#("newPassword", json.string(new))]),
+  )
+}
+
+pub fn remove_password() -> Command(Nil) {
+  command("_account.removePassword", json.object([]))
+}
+
+pub fn sign_in_again_with_password(password: String) -> Command(Nil) {
+  command(
+    "_account.reauthPassword",
+    json.object([#("password", json.string(password))]),
+  )
+}
+
+pub fn sign_in_again_with_code(code: String) -> Command(Nil) {
+  command("_account.reauthTotp", json.object([#("code", json.string(code))]))
 }
 
 pub fn revoke_app_password(name: String) -> Command(Nil) {
@@ -397,13 +506,10 @@ pub fn confirm_email(email: String, code: String) -> Command(Nil) {
 }
 
 pub fn request_email_change(new_email: String) -> Command(Bool) {
-  Command(
-    path: "/xrpc/com.atproto.server.requestEmailUpdate",
-    body: json.object([#("newEmail", json.string(new_email))]),
-    read: fn(answer) {
-      json.parse(answer, decode.at(["tokenRequired"], decode.bool))
-      |> result.replace_error(NotUnderstood)
-    },
+  command_returning(
+    "com.atproto.server.requestEmailUpdate",
+    json.object([#("newEmail", json.string(new_email))]),
+    decode.at(["tokenRequired"], decode.bool),
   )
 }
 
@@ -572,6 +678,20 @@ fn timestamp_decoder() -> Decoder(Timestamp) {
     Ok(timestamp) -> decode.success(timestamp)
     Error(Nil) -> decode.failure(timestamp.from_unix_seconds(0), "Timestamp")
   }
+}
+
+fn backup_codes_decoder() -> Decoder(List(String)) {
+  decode.at(["backupCodes"], decode.list(decode.string))
+}
+
+fn command_returning(
+  name: String,
+  body: Json,
+  decoder: Decoder(answer),
+) -> Command(answer) {
+  Command(path: "/xrpc/" <> name, body:, read: fn(answer) {
+    json.parse(answer, decoder) |> result.replace_error(NotUnderstood)
+  })
 }
 
 fn command(name: String, body: Json) -> Command(Nil) {

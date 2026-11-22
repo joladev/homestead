@@ -7,6 +7,12 @@ pub fn focus(id: String) -> Effect(message) {
   do_focus(id)
 }
 
+pub fn open_dialog(id: String) -> Effect(message) {
+  use _, _ <- effect.after_paint
+
+  do_open_dialog(id)
+}
+
 pub fn copy(
   text: String,
   to_message: fn(Result(Nil, Nil)) -> message,
@@ -24,3 +30,6 @@ fn do_focus(id: String) -> Nil
 
 @external(javascript, "./browser_ffi.mjs", "copy")
 fn do_copy(text: String) -> Promise(Result(Nil, Nil))
+
+@external(javascript, "./browser_ffi.mjs", "openDialog")
+fn do_open_dialog(id: String) -> Nil
