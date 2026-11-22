@@ -170,7 +170,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
 
         Some(session.SwitchedAccount(account:)) ->
-          switch_account(model, account)
+          switch_account(model, account, route.page(dashboard.route(dashboard)))
       }
     }
 
@@ -288,7 +288,7 @@ fn update_sign_in(
   let #(sign_in, effect) = sign_in.update(sign_in, message)
 
   case sign_in.chosen_account(sign_in) {
-    Some(account) -> switch_account(model, account)
+    Some(account) -> switch_account(model, account, Overview)
     None -> #(
       Model(..model, state: to_state(sign_in)),
       effect.map(effect, SignInProducedMessage),
@@ -296,10 +296,16 @@ fn update_sign_in(
   }
 }
 
-fn switch_account(model: Model, account: String) -> #(Model, Effect(Message)) {
+fn switch_account(
+  model: Model,
+  account: String,
+  to: Route,
+) -> #(Model, Effect(Message)) {
+  let path = route.to_path(to)
+
   #(
-    Model(..model, state: Restoring(location: overview())),
-    effect.batch([show_overview(), restore_account(account)]),
+    Model(..model, state: Restoring(location: Uri(..uri.empty, path:))),
+    effect.batch([modem.replace(path, None, None), restore_account(account)]),
   )
 }
 

@@ -34,6 +34,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/svg
 import lustre/event
+import modem
 
 pub opaque type Model {
   Model(
@@ -100,9 +101,21 @@ pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
     Model(..model, is_menu_open: False),
     effect.none(),
   ))
+  use <- bool.guard(is_closed(route, model.account), #(model, show_overview()))
   let #(page, effect) = open(model.session, model.directory, route)
 
   #(Model(..model, route:, page:, is_menu_open: False), effect)
+}
+
+fn is_closed(route: Route, account: Remote(tranquil.Account)) -> Bool {
+  case account {
+    Loaded(tranquil.Account(is_admin: False, ..)) -> route == Admin
+    Loading | Loaded(_) | Failed(_) -> False
+  }
+}
+
+fn show_overview() -> Effect(Message) {
+  modem.replace(route.to_path(Overview), None, None)
 }
 
 fn open(
@@ -218,6 +231,10 @@ pub fn account(model: Model) -> Did {
   session.account(model.session)
 }
 
+pub fn route(model: Model) -> Route {
+  model.route
+}
+
 pub fn departure(model: Model) -> Option(Departure) {
   case model.departure, model.page {
     Some(departure), _ -> Some(departure)
@@ -273,7 +290,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     ServerReturnedAccount(result:), _ -> {
       let account = remote.from_result(result)
 
-      #(Model(..model, account:), remember_handle(model.session, account))
+      #(
+        Model(..model, account:),
+        effect.batch([
+          remember_handle(model.session, account),
+          case is_closed(model.route, account) {
+            True -> show_overview()
+            False -> effect.none()
+          },
+        ]),
+      )
     }
 
     OverviewProducedMessage(message), OverviewPage(page) -> {
