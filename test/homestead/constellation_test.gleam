@@ -11,16 +11,23 @@ pub fn links_decode_to_one_entry_per_path_with_the_most_linked_first_test() {
 
   assert json.parse(body, constellation.links_decoder())
     == Ok([
-      Link(collection: "app.bsky.feed.like", path: ".subject.uri", records: 16),
+      Link(
+        collection: "app.bsky.feed.like",
+        path: ".subject.uri",
+        records: 16,
+        accounts: 16,
+      ),
       Link(
         collection: "app.bsky.feed.post",
         path: ".reply.parent.uri",
         records: 2,
+        accounts: 2,
       ),
       Link(
         collection: "app.bsky.feed.post",
         path: ".embed.record.uri",
         records: 1,
+        accounts: 1,
       ),
     ])
 }

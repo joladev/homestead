@@ -487,7 +487,7 @@ fn view_label(model: Model, found: Label) -> Element(Message) {
   html.div(
     [
       attribute.classes([
-        #("row label-row", True),
+        #("row entry-row", True),
         #("past", is_past),
       ]),
     ],
@@ -504,7 +504,7 @@ fn view_label(model: Model, found: Label) -> Element(Message) {
           ]),
           html.span([attribute.class("state")], [html.text(state)]),
         ]),
-        html.span([attribute.class("labeler")], [
+        html.span([attribute.class("source")], [
           case labeler {
             Ok(Labeler(image: Some(url), ..)) ->
               html.img([

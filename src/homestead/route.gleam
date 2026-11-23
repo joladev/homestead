@@ -31,6 +31,12 @@ pub type DataPage {
   Export
   Repository(location: RepositoryLocation)
   Labels
+  Backlinks(location: BacklinkLocation)
+}
+
+pub type BacklinkLocation {
+  Sources
+  Source(collection: String, path: String)
 }
 
 pub type RepositoryLocation {
@@ -74,6 +80,7 @@ pub const sections = [
     rest: [
       Data(Repository(Collections)),
       Data(Labels),
+      Data(Backlinks(Sources)),
     ],
   ),
   Section(
@@ -115,6 +122,13 @@ pub fn from_uri(uri: Uri) -> Route {
         ),
       )
     ["data", "labels"] -> Data(Labels)
+    ["data", "backlinks"] ->
+      Data(
+        Backlinks(case query(uri, "collection"), query(uri, "path") {
+          Some(collection), Some(path) -> Source(collection:, path:)
+          Some(_), None | None, _ -> Sources
+        }),
+      )
     ["advanced", "delegation"] -> Advanced(Delegation)
     ["advanced", "identity"] -> Advanced(IdentityDocument)
     ["admin"] -> Admin
@@ -144,6 +158,10 @@ pub fn to_path(route: Route) -> String {
       "/data/repository/new?"
       <> uri.query_to_string([#("collection", collection)])
     Data(Labels) -> "/data/labels"
+    Data(Backlinks(Sources)) -> "/data/backlinks"
+    Data(Backlinks(Source(collection:, path:))) ->
+      "/data/backlinks?"
+      <> uri.query_to_string([#("collection", collection), #("path", path)])
     Advanced(Delegation) -> "/advanced/delegation"
     Advanced(IdentityDocument) -> "/advanced/identity"
     Admin -> "/admin"
@@ -164,6 +182,7 @@ pub fn label(route: Route) -> String {
     Data(Export) -> "Export"
     Data(Repository(_)) -> "Repository"
     Data(Labels) -> "Labels"
+    Data(Backlinks(_)) -> "Backlinks"
     Advanced(Delegation) -> "Delegation"
     Advanced(IdentityDocument) -> "Identity document"
     Admin -> "Admin"
@@ -181,6 +200,7 @@ fn query(uri: Uri, name: String) -> Option(String) {
 pub fn page(route: Route) -> Route {
   case route {
     Data(Repository(_)) -> Data(Repository(Collections))
+    Data(Backlinks(_)) -> Data(Backlinks(Sources))
     Overview
     | Account(_)
     | Access(_)

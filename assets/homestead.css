@@ -521,36 +521,37 @@ h3 {
     grid-column: 1 / -1;
 }
 
-.row.label-row {
+.row.entry-row {
+    box-sizing: border-box;
     grid-template-columns: minmax(0, 1fr) auto;
     padding: 12px 0;
 }
 
-.label-row .what {
+.entry-row .what {
     display: grid;
     row-gap: 6px;
     min-width: 0;
 }
 
-.label-row .title {
+.entry-row .title {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 2px 10px;
 }
 
-.label-row .title strong {
+.entry-row .title strong {
     font-weight: 600;
     color: var(--text-strong);
     overflow-wrap: anywhere;
 }
 
-.label-row .state {
+.entry-row .state {
     font-size: 15px;
     color: var(--good);
 }
 
-.label-row .labeler {
+.entry-row .source {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -560,8 +561,8 @@ h3 {
     overflow-wrap: anywhere;
 }
 
-.label-row .labeler img,
-.label-row .labeler .no-avatar {
+.entry-row img,
+.entry-row .no-avatar {
     flex: none;
     width: 20px;
     height: 20px;
@@ -569,7 +570,7 @@ h3 {
     background: var(--raised);
 }
 
-.label-row .when {
+.entry-row .when {
     display: grid;
     row-gap: 4px;
     justify-items: end;
@@ -578,12 +579,34 @@ h3 {
     white-space: nowrap;
 }
 
-.label-row.past .title strong {
+a.entry-row {
+    color: inherit;
+    text-decoration: none;
+}
+
+a.entry-row:hover {
+    background: var(--raised);
+}
+
+a.entry-row .title strong {
+    text-decoration: underline;
+}
+
+a.entry-row:focus-visible {
+    outline-offset: -2px;
+}
+
+.entry-row .title img,
+.entry-row .title .no-avatar {
+    align-self: center;
+}
+
+.entry-row.past .title strong {
     font-weight: 400;
     color: var(--text-dim);
 }
 
-.label-row.past .state {
+.entry-row.past .state {
     color: var(--text-dim);
 }
 
@@ -1422,12 +1445,12 @@ input:disabled {
         min-height: 44px;
     }
 
-    .row.label-row {
+    .row.entry-row {
         grid-template-columns: minmax(0, 1fr);
         row-gap: 6px;
     }
 
-    .label-row .when {
+    .entry-row .when {
         display: flex;
         flex-wrap: wrap;
         gap: 2px 12px;

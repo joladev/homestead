@@ -7,6 +7,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/uri.{type Uri}
 import homestead/admin
 import homestead/app_passwords
+import homestead/backlink
 import homestead/browser
 import homestead/connected_apps
 import homestead/delegation
@@ -60,6 +61,7 @@ type Page {
   SignInMethodsPage(sign_in_methods.Model)
   ExportPage(export.Model)
   LabelsPage(labels.Model)
+  BacklinkPage(backlink.Model)
   DeleteAccountPage(delete_account.Model)
   RepositoryPage(repository.Model)
   DelegationPage(delegation.Model)
@@ -192,6 +194,12 @@ fn open(
       #(LabelsPage(page), effect.map(effect, LabelsProducedMessage))
     }
 
+    Data(route.Backlinks(location:)) -> {
+      let #(page, effect) = backlink.init(session, location)
+
+      #(BacklinkPage(page), effect.map(effect, BacklinkProducedMessage))
+    }
+
     Data(route.Repository(location:)) -> {
       let #(page, effect) = repository.init(session, location)
 
@@ -244,6 +252,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     | None, SignInMethodsPage(_)
     | None, ExportPage(_)
     | None, LabelsPage(_)
+    | None, BacklinkPage(_)
     | None, RepositoryPage(_)
     | None, DelegationPage(_)
     | None, IdentityDocumentPage(_)
@@ -264,6 +273,7 @@ pub opaque type Message {
   SignInMethodsProducedMessage(sign_in_methods.Message)
   ExportProducedMessage(export.Message)
   LabelsProducedMessage(labels.Message)
+  BacklinkProducedMessage(backlink.Message)
   DeleteAccountProducedMessage(delete_account.Message)
   RepositoryProducedMessage(repository.Message)
   DelegationProducedMessage(delegation.Message)
@@ -380,6 +390,15 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    BacklinkProducedMessage(message), BacklinkPage(page) -> {
+      let #(page, effect) = backlink.update(page, message)
+
+      #(
+        Model(..model, page: BacklinkPage(page)),
+        effect.map(effect, BacklinkProducedMessage),
+      )
+    }
+
     LabelsProducedMessage(message), LabelsPage(page) -> {
       let #(page, effect) = labels.update(page, message)
 
@@ -443,6 +462,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | DeleteAccountProducedMessage(_), _
     | ExportProducedMessage(_), _
     | LabelsProducedMessage(_), _
+    | BacklinkProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
     | SessionsProducedMessage(_), _
@@ -580,6 +600,9 @@ pub fn view(model: Model) -> Element(Message) {
 
       LabelsPage(page) ->
         labels.view(page) |> element.map(LabelsProducedMessage)
+
+      BacklinkPage(page) ->
+        backlink.view(page) |> element.map(BacklinkProducedMessage)
 
       DeleteAccountPage(page) ->
         delete_account.view(page) |> element.map(DeleteAccountProducedMessage)
