@@ -36,5 +36,15 @@ watch = ["content"]
 [tools.lustre.html]
 title = "Homestead"
 
+[[tools.lustre.html.links]]
+rel = "icon"
+href = "/favicon.ico"
+sizes = "32x32"
+
+[[tools.lustre.html.links]]
+rel = "icon"
+href = "/favicon.svg"
+type = "image/svg+xml"
+
 [[tools.lustre.html.stylesheets]]
 href = "/homestead.css"
