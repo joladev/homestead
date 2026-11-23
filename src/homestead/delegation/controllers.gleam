@@ -38,7 +38,7 @@ pub opaque type Model {
 
 type Action {
   Resting
-  Adding(identifier: String, lookup: Lookup, level: String, is_adding: Bool)
+  Adding(identifier: String, lookup: Lookup, level: String)
   ConfirmingRemove(controller: Controller)
   Removing
   Refused(problem: Problem)
@@ -48,6 +48,7 @@ type Lookup {
   NotLooked
   Looking
   Found(controller: FoundController)
+  Granting(controller: FoundController)
   LookupRefused(problem: Problem)
   AddRefused(controller: FoundController, problem: Problem)
 }
@@ -113,29 +114,18 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserClickedAdd, _ -> #(
       Model(
         ..model,
-        action: Adding(
-          identifier: "",
-          lookup: NotLooked,
-          level: "",
-          is_adding: False,
-        ),
+        action: Adding(identifier: "", lookup: NotLooked, level: ""),
       ),
       browser.focus(identifier_id),
     )
 
     UserTypedIdentifier(identifier:), Adding(level:, ..) -> #(
-      Model(
-        ..model,
-        action: Adding(identifier:, lookup: NotLooked, level:, is_adding: False),
-      ),
+      Model(..model, action: Adding(identifier:, lookup: NotLooked, level:)),
       effect.none(),
     )
 
     UserSubmittedIdentifier, Adding(identifier:, level:, ..) -> #(
-      Model(
-        ..model,
-        action: Adding(identifier:, lookup: Looking, level:, is_adding: False),
-      ),
+      Model(..model, action: Adding(identifier:, lookup: Looking, level:)),
       tranquil.load(
         session,
         tranquil.find_controller(case string.trim(identifier) {
@@ -156,7 +146,6 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
             Error(problem) -> LookupRefused(problem:)
           },
           level:,
-          is_adding: False,
         ),
       ),
       case result {
@@ -166,10 +155,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     UserPickedLevel(level:), Adding(identifier:, lookup:, ..) -> #(
-      Model(
-        ..model,
-        action: Adding(identifier:, lookup:, level:, is_adding: False),
-      ),
+      Model(..model, action: Adding(identifier:, lookup:, level:)),
       effect.none(),
     )
 
@@ -181,12 +167,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserConfirmedAdd(controller:, scopes:), Adding(identifier:, level:, ..) -> #(
       Model(
         ..model,
-        action: Adding(
-          identifier:,
-          lookup: Found(controller:),
-          level:,
-          is_adding: True,
-        ),
+        action: Adding(identifier:, lookup: Granting(controller:), level:),
       ),
       tranquil.perform(
         session,
@@ -209,7 +190,6 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
           identifier:,
           lookup: AddRefused(controller:, problem:),
           level:,
-          is_adding: False,
         ),
       ),
       effect.none(),
@@ -313,8 +293,8 @@ pub fn view(
           )
         },
         case model.action, controls_accounts {
-          Adding(identifier:, lookup:, level:, is_adding:), _ ->
-            view_form(identifier, lookup, level, is_adding, levels)
+          Adding(identifier:, lookup:, level:), _ ->
+            view_form(identifier, lookup, level, levels)
 
           Refused(problem:), _ -> [layout.problem(describe_refusal(problem))]
 
@@ -391,7 +371,6 @@ fn view_form(
   identifier: String,
   lookup: Lookup,
   level: String,
-  is_adding: Bool,
   levels: Remote(List(AccessLevel)),
 ) -> List(Element(Message)) {
   let level = case level {
@@ -399,8 +378,13 @@ fn view_form(
     level -> level
   }
   let found = case lookup {
-    Found(controller:) | AddRefused(controller:, ..) -> Some(controller)
+    Found(controller:) | Granting(controller:) | AddRefused(controller:, ..) ->
+      Some(controller)
     NotLooked | Looking | LookupRefused(_) -> None
+  }
+  let is_granting = case lookup {
+    Granting(_) -> True
+    NotLooked | Looking | Found(_) | LookupRefused(_) | AddRefused(..) -> False
   }
 
   list.flatten([
@@ -416,7 +400,7 @@ fn view_form(
               attribute.autocomplete("off"),
               attribute.autocapitalize("none"),
               attribute.spellcheck(False),
-              attribute.disabled(lookup == Looking || is_adding),
+              attribute.disabled(lookup == Looking || is_granting),
               event.on_input(UserTypedIdentifier),
             ]),
             html.button(
@@ -448,7 +432,7 @@ fn view_form(
       LookupRefused(problem:) | AddRefused(problem:, ..) -> [
         layout.problem(describe_refusal(problem)),
       ]
-      NotLooked | Looking | Found(_) -> []
+      NotLooked | Looking | Found(_) | Granting(_) -> []
     },
     case found {
       None -> []
@@ -473,7 +457,7 @@ fn view_form(
               id: "controller-access",
               levels:,
               picked: level,
-              is_disabled: is_adding,
+              is_disabled: is_granting,
               on_pick: UserPickedLevel,
             ),
           ],

@@ -636,7 +636,7 @@ fn view_top_bar(
         [
           route.href(section.first),
           attribute.data("label", section.label),
-          aria_current("true", current == Ok(section)),
+          aria_current(value: "true", is_current: current == Ok(section)),
         ],
         [html.text(section.label)],
       )
@@ -647,7 +647,7 @@ fn view_top_bar(
         [
           route.href(Admin),
           attribute.data("label", route.label(Admin)),
-          aria_current("true", model.route == Admin),
+          aria_current(value: "true", is_current: model.route == Admin),
         ],
         [html.text(route.label(Admin))],
       )
@@ -721,7 +721,7 @@ fn view_menu(
     html.a(
       [
         route.href(page),
-        aria_current("page", page == route.page(model.route)),
+        aria_current(value: "page", is_current: page == route.page(model.route)),
         ..attributes
       ],
       [html.text(route.label(page))],
@@ -952,7 +952,10 @@ fn view_page_links(
           html.a(
             [
               route.href(page),
-              aria_current("page", page == route.page(current_route)),
+              aria_current(
+                value: "page",
+                is_current: page == route.page(current_route),
+              ),
             ],
             [html.text(route.label(page))],
           )
@@ -983,7 +986,10 @@ fn view_placeholder(route: Route) -> List(Element(Message)) {
   }
 }
 
-fn aria_current(value: String, is_current: Bool) -> Attribute(message) {
+fn aria_current(
+  value value: String,
+  is_current is_current: Bool,
+) -> Attribute(message) {
   case is_current {
     True -> attribute.aria_current(value)
     False -> attribute.none()

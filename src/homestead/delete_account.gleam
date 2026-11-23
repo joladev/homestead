@@ -152,25 +152,23 @@ pub fn view(model: Model) -> Element(Message) {
       actions:,
     )
   }
-  let send_button = fn(is_requesting) {
+  let send_button =
     html.button(
       [
         attribute.id(send_button_id),
         attribute.class("action"),
-        attribute.disabled(is_requesting),
+        attribute.disabled(model.step == Requesting),
         event.on_click(UserClickedSendCode),
       ],
       [html.text("Send code")],
     )
-  }
 
   layout.page([
     layout.title_section("delete-account", [
       layout.block(case model.step {
-        Resting -> [statement([send_button(False)])]
-        Requesting -> [statement([send_button(True)])]
+        Resting | Requesting -> [statement([send_button])]
         RequestRefused(problem:) -> [
-          statement([send_button(False)]),
+          statement([send_button]),
           layout.problem(describe_refusal(problem)),
         ]
         Confirming(code:, password:, submission:) -> [

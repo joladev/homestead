@@ -314,10 +314,10 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model) -> List(Element(Message)) {
-  let status = fn(is_preparing: Bool) {
+  let status = {
     use status <- layout.awaited_row(name: "Authenticator", of: model.status)
 
-    view_status(status, is_preparing)
+    view_status(status, model.action)
   }
 
   [
@@ -325,12 +325,8 @@ pub fn view(model: Model) -> List(Element(Message)) {
       Scanning(setup:, code:, submission:) ->
         view_setup(setup, code, submission)
       ShowingCodes(codes:, copying:) -> view_codes(codes, copying)
-      Refused(problem:) -> [
-        status(False),
-        layout.problem(describe_refusal(problem)),
-      ]
-      Preparing -> [status(True)]
-      Resting | Checking(..) -> [status(False)]
+      Refused(problem:) -> [status, layout.problem(describe_refusal(problem))]
+      Resting | Preparing | Checking(..) -> [status]
     }),
     case model.action {
       Checking(purpose:, password:, code:, submission:) ->
@@ -341,7 +337,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
   ]
 }
 
-fn view_status(status: Authenticator, is_preparing: Bool) -> Element(Message) {
+fn view_status(status: Authenticator, action: Action) -> Element(Message) {
   case status.enabled {
     False ->
       layout.row(
@@ -353,7 +349,7 @@ fn view_status(status: Authenticator, is_preparing: Bool) -> Element(Message) {
             [
               attribute.id(setup_button_id),
               attribute.class("action"),
-              attribute.disabled(is_preparing),
+              attribute.disabled(action == Preparing),
               event.on_click(UserClickedSetUp),
             ],
             [html.text("Set up")],

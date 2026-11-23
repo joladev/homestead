@@ -896,7 +896,10 @@ fn view_copyable(
   )
 }
 
-fn view_editor(text: String, is_disabled: Bool) -> Element(Message) {
+fn view_editor(
+  text text: String,
+  is_disabled is_disabled: Bool,
+) -> Element(Message) {
   layout.field(
     html.label([attribute.for(record_id)], [html.text("Record")]),
     html.textarea(
@@ -954,7 +957,7 @@ fn view_new_record(
           layout.dim("optional"),
         ]),
       ),
-      view_editor(text, is_creating),
+      view_editor(text:, is_disabled: is_creating),
       case creation {
         NewNotJson -> layout.problem("That isn't a JSON object")
         CreationRefused(problem:) -> layout.problem(describe_refusal(problem))

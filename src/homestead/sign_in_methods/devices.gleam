@@ -29,7 +29,8 @@ pub opaque type Model {
 
 type Action {
   Resting
-  Renaming(device: RememberedDevice, name: String, is_saving: Bool)
+  Renaming(device: RememberedDevice, name: String)
+  SavingName(device: RememberedDevice, name: String)
   ConfirmingForget(device: RememberedDevice)
   Forgetting
   Refused(problem: Problem)
@@ -72,11 +73,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserClickedRename(device:) -> #(
       Model(
         ..model,
-        action: Renaming(
-          device:,
-          name: option.unwrap(device.name, ""),
-          is_saving: False,
-        ),
+        action: Renaming(device:, name: option.unwrap(device.name, "")),
       ),
       browser.focus(name_input_id),
     )
@@ -84,29 +81,31 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserTypedName(name:) ->
       case model.action {
         Renaming(device:, ..) -> #(
-          Model(..model, action: Renaming(device:, name:, is_saving: False)),
+          Model(..model, action: Renaming(device:, name:)),
           effect.none(),
         )
-        Resting | ConfirmingForget(_) | Forgetting | Refused(_) -> #(
-          model,
-          effect.none(),
-        )
+        SavingName(..)
+        | Resting
+        | ConfirmingForget(_)
+        | Forgetting
+        | Refused(_) -> #(model, effect.none())
       }
 
     UserSubmittedName ->
       case model.action {
-        Renaming(device:, name:, ..) -> #(
-          Model(..model, action: Renaming(device:, name:, is_saving: True)),
+        Renaming(device:, name:) -> #(
+          Model(..model, action: SavingName(device:, name:)),
           tranquil.perform(
             session,
             tranquil.rename_device(device.id, string.trim(name)),
             ServerRenamedDevice,
           ),
         )
-        Resting | ConfirmingForget(_) | Forgetting | Refused(_) -> #(
-          model,
-          effect.none(),
-        )
+        SavingName(..)
+        | Resting
+        | ConfirmingForget(_)
+        | Forgetting
+        | Refused(_) -> #(model, effect.none())
       }
 
     UserCancelledRename(device:) -> #(
@@ -200,7 +199,11 @@ pub fn view(model: Model) -> List(Element(Message)) {
         },
         case model.action {
           Refused(_) -> [layout.problem("The server didn't accept that")]
-          Resting | Renaming(..) | ConfirmingForget(_) | Forgetting -> []
+          Resting
+          | Renaming(..)
+          | SavingName(..)
+          | ConfirmingForget(_)
+          | Forgetting -> []
         },
       ]),
     ),
@@ -209,11 +212,21 @@ pub fn view(model: Model) -> List(Element(Message)) {
 
 fn view_device(device: RememberedDevice, model: Model) -> Element(Message) {
   case model.action {
-    Renaming(device: renaming, name:, is_saving:) if renaming == device ->
+    Renaming(device: renaming, name:) if renaming == device ->
       layout.name_form(
         id: name_input_id,
         name:,
-        is_saving:,
+        is_saving: False,
+        on_input: UserTypedName,
+        on_submit: UserSubmittedName,
+        on_cancel: UserCancelledRename(device),
+      )
+
+    SavingName(device: renaming, name:) if renaming == device ->
+      layout.name_form(
+        id: name_input_id,
+        name:,
+        is_saving: True,
         on_input: UserTypedName,
         on_submit: UserSubmittedName,
         on_cancel: UserCancelledRename(device),

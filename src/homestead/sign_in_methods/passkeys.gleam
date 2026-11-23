@@ -28,7 +28,8 @@ pub opaque type Model {
 
 type Action {
   Resting
-  Renaming(passkey: Passkey, name: String, is_saving: Bool)
+  Renaming(passkey: Passkey, name: String)
+  SavingName(passkey: Passkey, name: String)
   ConfirmingDelete(passkey: Passkey)
   Deleting(passkey: Passkey)
   SigningInAgain(passkey: Passkey, reauth: reauth.Model)
@@ -80,11 +81,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserClickedRename(passkey:) -> #(
       Model(
         ..model,
-        action: Renaming(
-          passkey:,
-          name: option.unwrap(passkey.name, ""),
-          is_saving: False,
-        ),
+        action: Renaming(passkey:, name: option.unwrap(passkey.name, "")),
       ),
       browser.focus(name_input_id),
     )
@@ -92,10 +89,11 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserTypedName(name:) ->
       case model.action {
         Renaming(passkey:, ..) -> #(
-          Model(..model, action: Renaming(passkey:, name:, is_saving: False)),
+          Model(..model, action: Renaming(passkey:, name:)),
           effect.none(),
         )
-        Resting
+        SavingName(..)
+        | Resting
         | ConfirmingDelete(_)
         | Deleting(_)
         | SigningInAgain(..)
@@ -104,15 +102,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     UserSubmittedName ->
       case model.action {
-        Renaming(passkey:, name:, ..) -> #(
-          Model(..model, action: Renaming(passkey:, name:, is_saving: True)),
+        Renaming(passkey:, name:) -> #(
+          Model(..model, action: SavingName(passkey:, name:)),
           tranquil.perform(
             session,
             tranquil.rename_passkey(passkey.id, string.trim(name)),
             ServerRenamedPasskey,
           ),
         )
-        Resting
+        SavingName(..)
+        | Resting
         | ConfirmingDelete(_)
         | Deleting(_)
         | SigningInAgain(..)
@@ -193,6 +192,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         }
         Resting
         | Renaming(..)
+        | SavingName(..)
         | ConfirmingDelete(_)
         | Deleting(_)
         | Refused(_) -> #(model, effect.none())
@@ -262,6 +262,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
           Refused(_) -> [layout.problem("The server didn't accept that")]
           Resting
           | Renaming(..)
+          | SavingName(..)
           | ConfirmingDelete(_)
           | Deleting(_)
           | SigningInAgain(..) -> []
@@ -271,19 +272,33 @@ pub fn view(model: Model) -> List(Element(Message)) {
     case model.action {
       SigningInAgain(reauth:, ..) ->
         reauth.view(reauth) |> element.map(ReauthProducedMessage)
-      Resting | Renaming(..) | ConfirmingDelete(_) | Deleting(_) | Refused(_) ->
-        element.none()
+      Resting
+      | Renaming(..)
+      | SavingName(..)
+      | ConfirmingDelete(_)
+      | Deleting(_)
+      | Refused(_) -> element.none()
     },
   ]
 }
 
 fn view_passkey(passkey: Passkey, model: Model) -> Element(Message) {
   case model.action {
-    Renaming(passkey: renaming, name:, is_saving:) if renaming == passkey ->
+    Renaming(passkey: renaming, name:) if renaming == passkey ->
       layout.name_form(
         id: name_input_id,
         name:,
-        is_saving:,
+        is_saving: False,
+        on_input: UserTypedName,
+        on_submit: UserSubmittedName,
+        on_cancel: UserCancelledRename(passkey),
+      )
+
+    SavingName(passkey: renaming, name:) if renaming == passkey ->
+      layout.name_form(
+        id: name_input_id,
+        name:,
+        is_saving: True,
         on_input: UserTypedName,
         on_submit: UserSubmittedName,
         on_cancel: UserCancelledRename(passkey),

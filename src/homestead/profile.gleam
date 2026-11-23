@@ -793,7 +793,11 @@ fn view_handle(
       },
       view_refusal(form.submission),
       layout.details_row([
-        view_submit("Change", form.submission, string.trim(form.name) == ""),
+        view_submit(
+          label: "Change",
+          submission: form.submission,
+          is_incomplete: string.trim(form.name) == "",
+        ),
       ]),
     ]),
   ])
@@ -941,9 +945,9 @@ fn view_email(
             view_refusal(verification.submission),
             layout.details_row([
               view_submit(
-                "Verify",
-                verification.submission,
-                string.trim(verification.code) == "",
+                label: "Verify",
+                submission: verification.submission,
+                is_incomplete: string.trim(verification.code) == "",
               ),
             ]),
           ],
@@ -966,9 +970,9 @@ fn view_email(
           view_refusal(form.submission),
           layout.details_row([
             view_submit(
-              "Change",
-              form.submission,
-              string.trim(form.new_email) == "",
+              label: "Change",
+              submission: form.submission,
+              is_incomplete: string.trim(form.new_email) == "",
             ),
           ]),
         ])
@@ -1002,7 +1006,11 @@ fn view_email(
           view_refusal(form.submission),
           layout.details_row([
             html.div([attribute.class("inline")], [
-              view_submit("Confirm", form.submission, string.trim(code) == ""),
+              view_submit(
+                label: "Confirm",
+                submission: form.submission,
+                is_incomplete: string.trim(code) == "",
+              ),
               html.button(
                 [
                   attribute.class("action"),
@@ -1105,7 +1113,13 @@ fn view_contact(
         }),
       ),
       view_refusal(form.submission),
-      layout.details_row([view_submit("Save", form.submission, False)]),
+      layout.details_row([
+        view_submit(
+          label: "Save",
+          submission: form.submission,
+          is_incomplete: False,
+        ),
+      ]),
     ]),
     case list.key_find(form.usernames, code_channel) {
       Ok(username) ->
@@ -1185,7 +1199,11 @@ fn view_code_step(form: ContactForm, username: String) -> Element(Message) {
     ]),
     view_refusal(form.confirmation),
     layout.details_row([
-      view_submit("Verify", form.confirmation, string.trim(form.code) == ""),
+      view_submit(
+        label: "Verify",
+        submission: form.confirmation,
+        is_incomplete: string.trim(form.code) == "",
+      ),
     ]),
   ])
 }
@@ -1198,9 +1216,9 @@ fn view_refusal(submission: Submission) -> Element(Message) {
 }
 
 fn view_submit(
-  label: String,
-  submission: Submission,
-  is_incomplete: Bool,
+  label label: String,
+  submission submission: Submission,
+  is_incomplete is_incomplete: Bool,
 ) -> Element(Message) {
   html.button(
     [

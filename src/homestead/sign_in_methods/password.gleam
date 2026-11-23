@@ -289,13 +289,13 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model, has_passkey: Bool) -> List(Element(Message)) {
-  let status = fn(is_changed: Bool) {
+  let status = {
     use has_password <- layout.awaited_row(
       name: "Password",
       of: model.has_password,
     )
 
-    view_status(has_password, has_passkey, is_changed)
+    view_status(has_password, has_passkey, model.action)
   }
 
   [
@@ -317,16 +317,12 @@ pub fn view(model: Model, has_passkey: Bool) -> List(Element(Message)) {
         ),
       ]
 
-      Refused(problem:) -> [
-        status(False),
-        layout.problem(describe_refusal(problem)),
-      ]
+      Refused(problem:) -> [status, layout.problem(describe_refusal(problem))]
 
-      Changed -> [status(True)]
-
-      Resting | Removing | SigningInAgain(pending: RemovingPassword, ..) -> [
-        status(False),
-      ]
+      Resting
+      | Changed
+      | Removing
+      | SigningInAgain(pending: RemovingPassword, ..) -> [status]
     }),
     case model.action {
       SigningInAgain(reauth:, ..) ->
@@ -345,7 +341,7 @@ pub fn view(model: Model, has_passkey: Bool) -> List(Element(Message)) {
 fn view_status(
   has_password: Bool,
   has_passkey: Bool,
-  is_changed: Bool,
+  action: Action,
 ) -> Element(Message) {
   case has_password {
     True ->
@@ -354,9 +350,15 @@ fn view_status(
         name: "Password",
         details: [
           html.text("set "),
-          case is_changed {
-            True -> layout.dim("\u{00B7} changed")
-            False -> element.none()
+          case action {
+            Changed -> layout.dim("\u{00B7} changed")
+            Resting
+            | Changing(..)
+            | Setting(..)
+            | ConfirmingRemove
+            | Removing
+            | SigningInAgain(..)
+            | Refused(_) -> element.none()
           },
         ],
         actions: [
@@ -422,12 +424,12 @@ fn view_change(
           event.on_input(UserTypedCurrent),
         ]),
       ),
-      view_new_field(new, is_sending),
+      view_new_field(new:, is_sending:),
       view_refusal(submission),
       view_form_actions(
-        "Change",
-        is_sending || current == "" || new == "",
-        change_button_id,
+        label: "Change",
+        is_disabled: is_sending || current == "" || new == "",
+        return_to: change_button_id,
       ),
     ]),
   ]
@@ -438,14 +440,21 @@ fn view_set(new: String, submission: Submission) -> List(Element(Message)) {
 
   [
     html.form([event.on_submit(fn(_) { UserSubmittedNew(new) })], [
-      view_new_field(new, is_sending),
+      view_new_field(new:, is_sending:),
       view_refusal(submission),
-      view_form_actions("Set", is_sending || new == "", set_button_id),
+      view_form_actions(
+        label: "Set",
+        is_disabled: is_sending || new == "",
+        return_to: set_button_id,
+      ),
     ]),
   ]
 }
 
-fn view_new_field(new: String, is_sending: Bool) -> Element(Message) {
+fn view_new_field(
+  new new: String,
+  is_sending is_sending: Bool,
+) -> Element(Message) {
   layout.field(
     html.label([attribute.for(new_id)], [html.text("New password")]),
     html.input([
@@ -467,9 +476,9 @@ fn view_refusal(submission: Submission) -> Element(Message) {
 }
 
 fn view_form_actions(
-  label: String,
-  is_disabled: Bool,
-  return_to: String,
+  label label: String,
+  is_disabled is_disabled: Bool,
+  return_to return_to: String,
 ) -> Element(Message) {
   layout.details_row([
     html.div([attribute.class("inline")], [

@@ -146,10 +146,10 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model) -> List(Element(Message)) {
-  let status = fn(is_busy: Bool) {
+  let status = {
     use is_linked <- layout.awaited_row(name: "Signal", of: model.is_linked)
 
-    view_status(is_linked, is_busy)
+    view_status(is_linked, model.action)
   }
 
   [
@@ -185,21 +185,21 @@ pub fn view(model: Model) -> List(Element(Message)) {
         ),
       ]
 
-      TimedOut -> [status(False), layout.problem("Linking timed out")]
+      TimedOut -> [status, layout.problem("Linking timed out")]
 
-      Refused(problem:) -> [
-        status(False),
-        layout.problem(describe_refusal(problem)),
-      ]
+      Refused(problem:) -> [status, layout.problem(describe_refusal(problem))]
 
-      Preparing | Unlinking -> [status(True)]
-
-      Resting -> [status(False)]
+      Resting | Preparing | Unlinking -> [status]
     }),
   ]
 }
 
-fn view_status(is_linked: Bool, is_busy: Bool) -> Element(Message) {
+fn view_status(is_linked: Bool, action: Action) -> Element(Message) {
+  let is_busy = case action {
+    Preparing | Unlinking -> True
+    Resting | Scanning(..) | TimedOut | ConfirmingUnlink | Refused(_) -> False
+  }
+
   layout.row(
     tone: layout.Plain,
     name: "Signal",
