@@ -125,12 +125,47 @@ pub type Server {
   )
 }
 
+pub type MessageStatus {
+  Pending
+  Processing
+  Sent
+  FailedToSend
+  OtherStatus(name: String)
+}
+
+pub fn status_name(status: MessageStatus) -> String {
+  case status {
+    Pending -> "pending"
+    Processing -> "processing"
+    Sent -> "sent"
+    FailedToSend -> "failed"
+    OtherStatus(name:) -> string.lowercase(name)
+  }
+}
+
+fn status_decoder() -> Decoder(MessageStatus) {
+  use name <- decode.map(decode.string)
+
+  case name {
+    "Pending" -> Pending
+    "Processing" -> Processing
+    "Sent" -> Sent
+    "Failed" -> FailedToSend
+    name -> OtherStatus(name:)
+  }
+}
+
+pub type SignInAgainMethod {
+  Password
+  AuthenticatorCode
+}
+
 pub type SentMessage {
   SentMessage(
     sent: Timestamp,
     channel: Channel,
     kind: String,
-    status: String,
+    status: MessageStatus,
     subject: Option(String),
     body: String,
   )
@@ -394,7 +429,7 @@ pub fn sent_messages() -> Query(List(SentMessage)) {
         use sent <- decode.field("createdAt", date.decoder())
         use channel <- decode.field("channel", channel_decoder())
         use kind <- decode.field("commsType", decode.string)
-        use status <- decode.field("status", decode.string)
+        use status <- decode.field("status", status_decoder())
         use subject <- optional_text("subject")
         use body <- decode.field("body", decode.string)
 
@@ -903,11 +938,23 @@ pub fn remembered_devices() -> Query(List(RememberedDevice)) {
   )
 }
 
-pub fn sign_in_again_methods() -> Query(List(String)) {
+pub fn sign_in_again_methods() -> Query(List(SignInAgainMethod)) {
+  let methods = {
+    use names <- decode.map(decode.list(decode.string))
+
+    list.filter_map(names, fn(name) {
+      case name {
+        "password" -> Ok(Password)
+        "totp" -> Ok(AuthenticatorCode)
+        _ -> Error(Nil)
+      }
+    })
+  }
+
   query(
     "_account.getReauthStatus",
     [],
-    decode.at(["availableMethods"], decode.list(decode.string)),
+    decode.at(["availableMethods"], methods),
   )
 }
 

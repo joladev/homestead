@@ -5,7 +5,7 @@ import homestead/remote.{
   type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
 }
 import homestead/session.{type Session}
-import homestead/tranquil.{type Problem}
+import homestead/tranquil.{type Problem, type SignInAgainMethod}
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -19,8 +19,8 @@ const secret_id = "sign-in-again-secret"
 pub opaque type Model {
   Model(
     session: Session,
-    methods: Remote(List(Method)),
-    method: Method,
+    methods: Remote(List(SignInAgainMethod)),
+    method: SignInAgainMethod,
     secret: String,
     submission: Submission,
     outcome: Outcome,
@@ -33,17 +33,12 @@ pub type Outcome {
   Cancelled
 }
 
-type Method {
-  Password
-  Code
-}
-
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
       methods: Loading,
-      method: Password,
+      method: tranquil.Password,
       secret: "",
       submission: Idle,
       outcome: Waiting,
@@ -64,8 +59,8 @@ pub fn outcome(model: Model) -> Outcome {
 }
 
 pub opaque type Message {
-  ServerReturnedMethods(result: Result(List(String), Problem))
-  UserPickedMethod(method: Method)
+  ServerReturnedMethods(result: Result(List(SignInAgainMethod), Problem))
+  UserPickedMethod(method: SignInAgainMethod)
   UserTypedSecret(secret: String)
   UserSubmittedSecret
   ServerConfirmedSignIn(result: Result(Nil, Problem))
@@ -75,16 +70,7 @@ pub opaque type Message {
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     ServerReturnedMethods(result:) -> {
-      let methods =
-        remote.map(remote.from_result(result), fn(names) {
-          list.filter_map(names, fn(name) {
-            case name {
-              "password" -> Ok(Password)
-              "totp" -> Ok(Code)
-              _ -> Error(Nil)
-            }
-          })
-        })
+      let methods = remote.from_result(result)
       let method = case methods {
         Loaded(value: [method, ..]) -> method
         Loaded(value: []) | Loading | Failed(_) -> model.method
@@ -108,8 +94,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       tranquil.perform(
         model.session,
         case model.method {
-          Password -> tranquil.sign_in_again_with_password(model.secret)
-          Code -> tranquil.sign_in_again_with_code(model.secret)
+          tranquil.Password ->
+            tranquil.sign_in_again_with_password(model.secret)
+          tranquil.AuthenticatorCode ->
+            tranquil.sign_in_again_with_code(model.secret)
         },
         ServerConfirmedSignIn,
       ),
@@ -194,7 +182,10 @@ pub fn view(model: Model) -> Element(Message) {
   )
 }
 
-fn view_methods(methods: List(Method), picked: Method) -> Element(Message) {
+fn view_methods(
+  methods: List(SignInAgainMethod),
+  picked: SignInAgainMethod,
+) -> Element(Message) {
   html.div(
     [
       attribute.class("choices"),
@@ -211,8 +202,8 @@ fn view_methods(methods: List(Method), picked: Method) -> Element(Message) {
         ]),
         html.span([], [
           html.text(case method {
-            Password -> "Password"
-            Code -> "Authenticator code"
+            tranquil.Password -> "Password"
+            tranquil.AuthenticatorCode -> "Authenticator code"
           }),
         ]),
       ])
@@ -230,7 +221,7 @@ fn view_secret(model: Model) -> Element(Message) {
   ]
 
   case model.method {
-    Password ->
+    tranquil.Password ->
       dialog.field(
         id:,
         label: "Password",
@@ -240,7 +231,7 @@ fn view_secret(model: Model) -> Element(Message) {
           ..shared
         ]),
       )
-    Code ->
+    tranquil.AuthenticatorCode ->
       dialog.field(
         id:,
         label: "Authenticator code",

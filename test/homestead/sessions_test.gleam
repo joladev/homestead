@@ -1,7 +1,7 @@
 import gleam/time/calendar
 import gleam/time/duration
 import gleam/time/timestamp
-import homestead/connected_apps
+import homestead/connected_app
 import homestead/date
 
 pub fn a_date_is_the_day_and_short_month_test() {
@@ -12,8 +12,8 @@ pub fn a_date_is_the_day_and_short_month_test() {
 }
 
 pub fn an_app_is_named_by_its_host_test() {
-  assert connected_apps.describe_app("https://fieldnotes.example/client.json")
+  assert connected_app.describe_app("https://fieldnotes.example/client.json")
     == "fieldnotes.example"
-  assert connected_apps.describe_app("http://localhost?scope=atproto")
+  assert connected_app.describe_app("http://localhost?scope=atproto")
     == "Localhost App"
 }

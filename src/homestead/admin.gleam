@@ -2,8 +2,8 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/string
-import homestead/admin/accounts
-import homestead/admin/invite_codes
+import homestead/admin/account
+import homestead/admin/invite_code
 import homestead/admin/server_page
 import homestead/admin/signal
 import homestead/layout
@@ -17,16 +17,16 @@ import lustre/element/html
 pub opaque type Model {
   Model(
     totals: Remote(ServerTotals),
-    accounts: accounts.Model,
-    invite_codes: invite_codes.Model,
+    accounts: account.Model,
+    invite_codes: invite_code.Model,
     signal: signal.Model,
     server_page: server_page.Model,
   )
 }
 
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
-  let #(accounts, accounts_effect) = accounts.init(session)
-  let #(invite_codes, invite_codes_effect) = invite_codes.init(session)
+  let #(accounts, accounts_effect) = account.init(session)
+  let #(invite_codes, invite_codes_effect) = invite_code.init(session)
   let #(signal, signal_effect) = signal.init(session)
   let #(server_page, server_page_effect) = server_page.init(session)
 
@@ -44,8 +44,8 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
 
 pub opaque type Message {
   ServerReturnedTotals(result: Result(ServerTotals, Problem))
-  AccountsProducedMessage(message: accounts.Message)
-  InviteCodesProducedMessage(message: invite_codes.Message)
+  AccountsProducedMessage(message: account.Message)
+  InviteCodesProducedMessage(message: invite_code.Message)
   SignalProducedMessage(message: signal.Message)
   ServerPageProducedMessage(message: server_page.Message)
 }
@@ -58,14 +58,14 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     AccountsProducedMessage(message:) -> {
-      let #(accounts, effect) = accounts.update(model.accounts, message)
+      let #(accounts, effect) = account.update(model.accounts, message)
 
       #(Model(..model, accounts:), effect.map(effect, AccountsProducedMessage))
     }
 
     InviteCodesProducedMessage(message:) -> {
       let #(invite_codes, effect) =
-        invite_codes.update(model.invite_codes, message)
+        invite_code.update(model.invite_codes, message)
 
       #(
         Model(..model, invite_codes:),
@@ -136,17 +136,17 @@ pub fn view(model: Model) -> Element(Message) {
       ]),
     ]),
     layout.section("accounts", [
-      map(accounts.view(model.accounts), AccountsProducedMessage),
+      map(account.view(model.accounts), AccountsProducedMessage),
     ]),
-    case invite_codes.is_offered(model.invite_codes) {
+    case invite_code.is_offered(model.invite_codes) {
       True ->
         layout.section_with_actions(
           "invite-codes",
-          invite_codes.view_actions(model.invite_codes)
+          invite_code.view_actions(model.invite_codes)
             |> list.map(element.map(_, InviteCodesProducedMessage)),
           [
             map(
-              invite_codes.view(model.invite_codes),
+              invite_code.view(model.invite_codes),
               InviteCodesProducedMessage,
             ),
           ],

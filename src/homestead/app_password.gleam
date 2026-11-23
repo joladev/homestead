@@ -6,7 +6,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/layout
-import homestead/permissions.{type Preset, FullAccess}
+import homestead/permission.{type Preset, FullAccess}
 import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type AppPassword, type Problem}
@@ -119,7 +119,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         Model(..model, creation: Creating),
         tranquil.perform(
           model.session,
-          tranquil.create_app_password(name, permissions.scopes(model.preset)),
+          tranquil.create_app_password(name, permission.scopes(model.preset)),
           ServerCreatedPassword(name, _),
         ),
       )
@@ -277,7 +277,7 @@ fn view_password(password: AppPassword, model: Model) -> Element(Message) {
         tone: layout.Plain,
         name: password.name,
         details: [
-          html.text(permissions.describe(password.scopes) <> " "),
+          html.text(permission.describe(password.scopes) <> " "),
           layout.dim(
             "\u{00B7} since "
             <> date.describe(password.created, model.local_offset),
@@ -323,7 +323,7 @@ fn view_form(model: Model) -> Element(Message) {
           attribute.role("radiogroup"),
           attribute.aria_labelledby("permissions-label"),
         ],
-        list.map(permissions.presets, fn(preset) {
+        list.map(permission.presets, fn(preset) {
           html.label([], [
             html.input([
               attribute.type_("radio"),
@@ -332,7 +332,7 @@ fn view_form(model: Model) -> Element(Message) {
               attribute.disabled(is_creating),
               event.on_click(UserPickedPreset(preset)),
             ]),
-            html.span([], [html.text(permissions.label(preset))]),
+            html.span([], [html.text(permission.label(preset))]),
           ])
         }),
       ),

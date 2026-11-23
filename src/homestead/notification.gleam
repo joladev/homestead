@@ -232,13 +232,15 @@ fn view_message(
   index: Int,
 ) -> Element(Message) {
   let is_shown = list.contains(model.shown, index)
-  let status = string.lowercase(message.status)
 
   element.fragment([
     layout.row(
-      tone: case status {
-        "failed" -> layout.Warning
-        _ -> layout.Plain
+      tone: case message.status {
+        tranquil.FailedToSend -> layout.Warning
+        tranquil.Pending
+        | tranquil.Processing
+        | tranquil.Sent
+        | tranquil.OtherStatus(_) -> layout.Plain
       },
       name: date.describe_moment(message.sent, model.local_offset),
       details: [
@@ -247,7 +249,7 @@ fn view_message(
           "\u{00B7} "
           <> tranquil.channel_name(message.channel)
           <> " \u{00B7} "
-          <> status,
+          <> tranquil.status_name(message.status),
         ),
       ],
       actions: [

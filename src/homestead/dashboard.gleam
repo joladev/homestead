@@ -7,16 +7,16 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/uri.{type Uri}
 import homestead/admin
-import homestead/app_passwords
+import homestead/app_password
 import homestead/backlink
 import homestead/browser
-import homestead/connected_apps
+import homestead/connected_app
 import homestead/delegation
 import homestead/delete_account
 import homestead/export
 import homestead/identity_document
-import homestead/labels
-import homestead/notifications
+import homestead/label
+import homestead/notification
 import homestead/overview
 import homestead/profile
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
@@ -28,7 +28,7 @@ import homestead/route.{
 import homestead/session.{type Departure, type Session, type StoredAccount}
 import homestead/sessions
 import homestead/sign_in
-import homestead/sign_in_methods
+import homestead/sign_in_method
 import homestead/tranquil.{type Problem}
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
@@ -55,13 +55,13 @@ pub opaque type Model {
 type Page {
   OverviewPage(overview.Model)
   SessionsPage(sessions.Model)
-  ConnectedAppsPage(connected_apps.Model)
-  AppPasswordsPage(app_passwords.Model)
+  ConnectedAppsPage(connected_app.Model)
+  AppPasswordsPage(app_password.Model)
   ProfilePage(profile.Model)
-  NotificationsPage(notifications.Model)
-  SignInMethodsPage(sign_in_methods.Model)
+  NotificationsPage(notification.Model)
+  SignInMethodsPage(sign_in_method.Model)
   ExportPage(export.Model)
-  LabelsPage(labels.Model)
+  LabelsPage(label.Model)
   BacklinkPage(backlink.Model)
   DeleteAccountPage(delete_account.Model)
   RepositoryPage(repository.Model)
@@ -136,7 +136,7 @@ fn open(
     }
 
     Access(ConnectedApps) -> {
-      let #(page, effect) = connected_apps.init(session)
+      let #(page, effect) = connected_app.init(session)
 
       #(
         ConnectedAppsPage(page),
@@ -145,7 +145,7 @@ fn open(
     }
 
     Access(AppPasswords) -> {
-      let #(page, effect) = app_passwords.init(session)
+      let #(page, effect) = app_password.init(session)
 
       #(AppPasswordsPage(page), effect.map(effect, AppPasswordsProducedMessage))
     }
@@ -157,7 +157,7 @@ fn open(
     }
 
     Account(route.Notifications) -> {
-      let #(page, effect) = notifications.init(session)
+      let #(page, effect) = notification.init(session)
 
       #(
         NotificationsPage(page),
@@ -166,7 +166,7 @@ fn open(
     }
 
     Access(SignInMethods) -> {
-      let #(page, effect) = sign_in_methods.init(session)
+      let #(page, effect) = sign_in_method.init(session)
 
       #(
         SignInMethodsPage(page),
@@ -190,7 +190,7 @@ fn open(
     }
 
     Data(route.Labels) -> {
-      let #(page, effect) = labels.init(session, directory)
+      let #(page, effect) = label.init(session, directory)
 
       #(LabelsPage(page), effect.map(effect, LabelsProducedMessage))
     }
@@ -244,7 +244,7 @@ pub fn departure(model: Model) -> Option(Departure) {
   case model.departure, model.page {
     Some(departure), _ -> Some(departure)
     None, SessionsPage(page) -> sessions.departure(page)
-    None, ConnectedAppsPage(page) -> connected_apps.departure(page)
+    None, ConnectedAppsPage(page) -> connected_app.departure(page)
     None, DeleteAccountPage(page) -> delete_account.departure(page)
     None, OverviewPage(_)
     | None, AppPasswordsPage(_)
@@ -267,13 +267,13 @@ pub opaque type Message {
   ServerReturnedAccount(result: Result(tranquil.Account, Problem))
   OverviewProducedMessage(overview.Message)
   SessionsProducedMessage(sessions.Message)
-  ConnectedAppsProducedMessage(connected_apps.Message)
-  AppPasswordsProducedMessage(app_passwords.Message)
+  ConnectedAppsProducedMessage(connected_app.Message)
+  AppPasswordsProducedMessage(app_password.Message)
   ProfileProducedMessage(profile.Message)
-  NotificationsProducedMessage(notifications.Message)
-  SignInMethodsProducedMessage(sign_in_methods.Message)
+  NotificationsProducedMessage(notification.Message)
+  SignInMethodsProducedMessage(sign_in_method.Message)
   ExportProducedMessage(export.Message)
-  LabelsProducedMessage(labels.Message)
+  LabelsProducedMessage(label.Message)
   BacklinkProducedMessage(backlink.Message)
   DeleteAccountProducedMessage(delete_account.Message)
   RepositoryProducedMessage(repository.Message)
@@ -328,7 +328,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     ConnectedAppsProducedMessage(message), ConnectedAppsPage(page) -> {
-      let #(page, effect) = connected_apps.update(page, message)
+      let #(page, effect) = connected_app.update(page, message)
 
       #(
         Model(..model, page: ConnectedAppsPage(page)),
@@ -337,7 +337,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     AppPasswordsProducedMessage(message), AppPasswordsPage(page) -> {
-      let #(page, effect) = app_passwords.update(page, message)
+      let #(page, effect) = app_password.update(page, message)
 
       #(
         Model(..model, page: AppPasswordsPage(page)),
@@ -365,7 +365,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     NotificationsProducedMessage(message), NotificationsPage(page) -> {
-      let #(page, effect) = notifications.update(page, message)
+      let #(page, effect) = notification.update(page, message)
 
       #(
         Model(..model, page: NotificationsPage(page)),
@@ -374,7 +374,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     SignInMethodsProducedMessage(message), SignInMethodsPage(page) -> {
-      let #(page, effect) = sign_in_methods.update(page, message)
+      let #(page, effect) = sign_in_method.update(page, message)
 
       #(
         Model(..model, page: SignInMethodsPage(page)),
@@ -401,7 +401,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     LabelsProducedMessage(message), LabelsPage(page) -> {
-      let #(page, effect) = labels.update(page, message)
+      let #(page, effect) = label.update(page, message)
 
       #(
         Model(..model, page: LabelsPage(page)),
@@ -581,26 +581,25 @@ pub fn view(model: Model) -> Element(Message) {
         sessions.view(page) |> element.map(SessionsProducedMessage)
 
       ConnectedAppsPage(page) ->
-        connected_apps.view(page) |> element.map(ConnectedAppsProducedMessage)
+        connected_app.view(page) |> element.map(ConnectedAppsProducedMessage)
 
       AppPasswordsPage(page) ->
-        app_passwords.view(page) |> element.map(AppPasswordsProducedMessage)
+        app_password.view(page) |> element.map(AppPasswordsProducedMessage)
 
       ProfilePage(page) ->
         profile.view(page) |> element.map(ProfileProducedMessage)
 
       NotificationsPage(page) ->
-        notifications.view(page) |> element.map(NotificationsProducedMessage)
+        notification.view(page) |> element.map(NotificationsProducedMessage)
 
       SignInMethodsPage(page) ->
-        sign_in_methods.view(page)
+        sign_in_method.view(page)
         |> element.map(SignInMethodsProducedMessage)
 
       ExportPage(page) ->
         export.view(page) |> element.map(ExportProducedMessage)
 
-      LabelsPage(page) ->
-        labels.view(page) |> element.map(LabelsProducedMessage)
+      LabelsPage(page) -> label.view(page) |> element.map(LabelsProducedMessage)
 
       BacklinkPage(page) ->
         backlink.view(page) |> element.map(BacklinkProducedMessage)

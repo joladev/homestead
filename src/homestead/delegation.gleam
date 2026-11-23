@@ -1,6 +1,6 @@
 import gleam/list
 import homestead/delegation/controlled
-import homestead/delegation/controllers
+import homestead/delegation/controller
 import homestead/delegation/log
 import homestead/layout
 import homestead/remote.{type Remote, Loading}
@@ -12,14 +12,14 @@ import lustre/element.{type Element}
 pub opaque type Model {
   Model(
     levels: Remote(List(AccessLevel)),
-    controllers: controllers.Model,
+    controllers: controller.Model,
     controlled: controlled.Model,
     log: log.Model,
   )
 }
 
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
-  let #(controllers, controllers_effect) = controllers.init(session)
+  let #(controllers, controllers_effect) = controller.init(session)
   let #(controlled, controlled_effect) = controlled.init(session)
   let #(log, log_effect) = log.init(session)
 
@@ -36,7 +36,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
 
 pub opaque type Message {
   ServerReturnedLevels(result: Result(List(AccessLevel), Problem))
-  ControllersProducedMessage(message: controllers.Message)
+  ControllersProducedMessage(message: controller.Message)
   ControlledProducedMessage(message: controlled.Message)
   LogProducedMessage(message: log.Message)
 }
@@ -49,8 +49,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     ControllersProducedMessage(message:) -> {
-      let #(controllers, effect) =
-        controllers.update(model.controllers, message)
+      let #(controllers, effect) = controller.update(model.controllers, message)
 
       #(
         Model(..model, controllers:),
@@ -79,14 +78,14 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section_with_actions(
       "controllers",
-      controllers.view_actions(
+      controller.view_actions(
         model.controllers,
         controlled.has_any(model.controlled),
       )
         |> list.map(element.map(_, ControllersProducedMessage)),
       [
         map(
-          controllers.view(
+          controller.view(
             model.controllers,
             model.levels,
             controlled.has_any(model.controlled),
@@ -99,7 +98,7 @@ pub fn view(model: Model) -> Element(Message) {
       "controlled-accounts",
       controlled.view_actions(
         model.controlled,
-        controllers.has_any(model.controllers),
+        controller.has_any(model.controllers),
       )
         |> list.map(element.map(_, ControlledProducedMessage)),
       [
@@ -107,7 +106,7 @@ pub fn view(model: Model) -> Element(Message) {
           controlled.view(
             model.controlled,
             model.levels,
-            controllers.has_any(model.controllers),
+            controller.has_any(model.controllers),
           ),
           ControlledProducedMessage,
         ),
@@ -118,7 +117,7 @@ pub fn view(model: Model) -> Element(Message) {
         log.view(
           model.log,
           list.append(
-            controllers.names(model.controllers),
+            controller.names(model.controllers),
             controlled.names(model.controlled),
           ),
         ),

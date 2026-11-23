@@ -6,10 +6,10 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleam/time/timestamp
 import homestead/tranquil.{
-  Account, ActiveSession, ChannelUsername, ContactPreferences, Discord, Email,
-  LinkedAccount, LogEntry, LogPage, MediaPage, OtherChannel, OtherSoftware,
-  Passkey, RecordPage, RememberedApp, RepoRecord, SentMessage, Server, Signal,
-  Telegram, Tranquil,
+  Account, ActiveSession, AuthenticatorCode, ChannelUsername, ContactPreferences,
+  Discord, Email, LinkedAccount, LogEntry, LogPage, MediaPage, OtherChannel,
+  OtherSoftware, Passkey, Password, RecordPage, RememberedApp, RepoRecord, Sent,
+  SentMessage, Server, Signal, Telegram, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -134,7 +134,7 @@ pub fn a_sent_message_without_a_subject_has_none_test() {
   let body =
     "{\"notifications\":[{\"createdAt\":\"2026-11-21T19:04:36+00:00\",
       \"channel\":\"discord\",\"commsType\":\"channel_verified\",
-      \"status\":\"sent\",\"subject\":null,\"body\":\"Verified\"}]}"
+      \"status\":\"Sent\",\"subject\":null,\"body\":\"Verified\"}]}"
 
   assert tranquil.parse(tranquil.sent_messages(), body)
     == Ok([
@@ -142,11 +142,18 @@ pub fn a_sent_message_without_a_subject_has_none_test() {
         sent: timestamp.from_unix_seconds(1_795_287_876),
         channel: Discord,
         kind: "channel_verified",
-        status: "sent",
+        status: Sent,
         subject: None,
         body: "Verified",
       ),
     ])
+}
+
+pub fn a_sign_in_again_method_homestead_cannot_perform_is_left_out_test() {
+  let body = "{\"availableMethods\":[\"password\",\"passkey\",\"totp\"]}"
+
+  assert tranquil.parse(tranquil.sign_in_again_methods(), body)
+    == Ok([Password, AuthenticatorCode])
 }
 
 pub fn a_passkey_that_was_never_used_has_no_last_use_test() {
