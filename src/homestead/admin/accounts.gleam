@@ -1,3 +1,5 @@
+import at/did.{type Did}
+import at/handle
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -30,7 +32,7 @@ pub opaque type Model {
     accounts: Remote(List(ListedAccount)),
     next: Option(String),
     more: More,
-    opened: Option(String),
+    opened: Option(Did),
     action: Action,
     copied: Copied,
   )
@@ -80,8 +82,8 @@ pub opaque type Message {
   UserSubmittedSearch
   UserClickedMore(after: String)
   ServerReturnedMoreAccounts(result: Result(AccountPage, Problem))
-  UserToggledAccount(did: String)
-  UserClickedCopy(did: String)
+  UserToggledAccount(did: Did)
+  UserClickedCopy(did: Did)
   BrowserCopiedText(result: Result(Nil, Nil))
   UserPickedInvites(account: ListedAccount, enabled: Bool)
   ServerSavedInvites(
@@ -165,7 +167,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
 
-    UserClickedCopy(did:) -> #(model, browser.copy(did, BrowserCopiedText))
+    UserClickedCopy(did:) -> #(
+      model,
+      browser.copy(did.to_string(did), BrowserCopiedText),
+    )
 
     BrowserCopiedText(result:) -> #(
       Model(..model, copied: case result {
@@ -274,7 +279,10 @@ pub fn view(model: Model) -> List(Element(Message)) {
           layout.listing(
             empty: "No accounts",
             rows: list.map(accounts, fn(account) {
-              #(account.did, element.fragment(view_account(account, model)))
+              #(
+                did.to_string(account.did),
+                element.fragment(view_account(account, model)),
+              )
             }),
             actions: case model.next {
               Some(after) -> [
@@ -308,7 +316,7 @@ fn view_account(
   let summary =
     layout.row(
       tone: layout.Plain,
-      name: account.handle,
+      name: handle.to_string(account.handle),
       details: [
         html.text(option.unwrap(account.email, "no email") <> " "),
         layout.dim(string.join(
@@ -352,7 +360,7 @@ fn view_account(
       summary,
       layout.copy_row(
         name: "DID",
-        value: account.did,
+        value: did.to_string(account.did),
         note: case model.copied {
           Copied -> Some("copied")
           CopyFailed -> Some("couldn't copy")
@@ -383,7 +391,7 @@ fn view_account(
           confirmation.view(
             question: "Delete?",
             consequence: "Everything in "
-              <> account.handle
+              <> handle.to_string(account.handle)
               <> " is removed for good.",
             accept: "Delete account",
             on_cancel: UserCancelledDelete,

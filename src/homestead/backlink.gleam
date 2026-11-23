@@ -1,4 +1,5 @@
 import at/did.{type Did}
+import at/handle.{type Handle}
 import at/tid
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
@@ -46,7 +47,7 @@ type More {
 }
 
 pub type Profile {
-  Profile(account: Did, handle: String, image: Option(String))
+  Profile(account: Did, handle: Handle, image: Option(String))
 }
 
 pub fn init(
@@ -222,7 +223,7 @@ pub fn profiles_request(accounts: List(Did)) -> Request(String) {
 pub fn profiles_decoder() -> Decoder(List(Profile)) {
   let profile = {
     use account <- decode.field("did", did.decoder())
-    use handle <- decode.field("handle", decode.string)
+    use handle <- decode.field("handle", handle.decoder())
     use image <- decode.optional_field(
       "avatar",
       None,
@@ -365,7 +366,7 @@ fn view_linking(
         },
         html.strong([], [
           html.text(case profile {
-            Ok(profile) -> "@" <> profile.handle
+            Ok(profile) -> "@" <> handle.to_string(profile.handle)
             Error(Nil) -> did.to_string(record.account)
           }),
         ]),

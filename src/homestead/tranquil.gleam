@@ -1,4 +1,5 @@
 import at/did.{type Did}
+import at/handle.{type Handle}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/int
@@ -105,7 +106,7 @@ fn channel_decoder() -> Decoder(Channel) {
 
 pub type Account {
   Account(
-    handle: String,
+    handle: Handle,
     email: Option(String),
     email_verified: Bool,
     contact_channel: Channel,
@@ -192,8 +193,8 @@ pub type RecordPage {
 
 pub type Controller {
   Controller(
-    did: String,
-    handle: Option(String),
+    did: Did,
+    handle: Option(Handle),
     access: String,
     since: Timestamp,
     is_active: Bool,
@@ -203,8 +204,8 @@ pub type Controller {
 
 pub type ControlledAccount {
   ControlledAccount(
-    did: String,
-    handle: Option(String),
+    did: Did,
+    handle: Option(Handle),
     access: String,
     since: Timestamp,
   )
@@ -216,15 +217,15 @@ pub type AccessLevel {
 
 pub type FoundController {
   FoundController(
-    did: String,
-    handle: Option(String),
+    did: Did,
+    handle: Option(Handle),
     server: Option(String),
     is_local: Bool,
   )
 }
 
 pub type LogEntry {
-  LogEntry(id: String, actor: String, action: String, at: Timestamp)
+  LogEntry(id: String, actor: Did, action: String, at: Timestamp)
 }
 
 pub type LogPage {
@@ -237,8 +238,8 @@ pub type ServerTotals {
 
 pub type ListedAccount {
   ListedAccount(
-    did: String,
-    handle: String,
+    did: Did,
+    handle: Handle,
     email: Option(String),
     since: Timestamp,
     is_verified: Bool,
@@ -312,7 +313,7 @@ pub opaque type Command(answer) {
 
 pub fn account() -> Query(Account) {
   query("com.atproto.server.getSession", [], {
-    use handle <- decode.field("handle", decode.string)
+    use handle <- decode.field("handle", handle.decoder())
     use email <- decode.optional_field(
       "email",
       None,
@@ -502,8 +503,8 @@ pub fn find_accounts(
       use accounts <- decode.field(
         "accounts",
         decode.list({
-          use did <- decode.field("did", decode.string)
-          use handle <- decode.field("handle", decode.string)
+          use did <- decode.field("did", did.decoder())
+          use handle <- decode.field("handle", handle.decoder())
           use email <- optional_text("email")
           use since <- decode.field("indexedAt", date.decoder())
           use verified <- optional_text("emailConfirmedAt")
@@ -635,8 +636,8 @@ pub fn controllers() -> Query(List(Controller)) {
     decode.at(
       ["controllers"],
       decode.list({
-        use did <- decode.field("did", decode.string)
-        use handle <- optional_text("handle")
+        use did <- decode.field("did", did.decoder())
+        use handle <- optional_handle()
         use access <- decode.field("grantedScopes", decode.string)
         use since <- decode.field("grantedAt", date.decoder())
         use is_active <- decode.field("isActive", decode.bool)
@@ -662,8 +663,8 @@ pub fn controlled_accounts() -> Query(List(ControlledAccount)) {
     decode.at(
       ["accounts"],
       decode.list({
-        use did <- decode.field("did", decode.string)
-        use handle <- optional_text("handle")
+        use did <- decode.field("did", did.decoder())
+        use handle <- optional_handle()
         use access <- decode.field("grantedScopes", decode.string)
         use since <- decode.field("grantedAt", date.decoder())
 
@@ -692,8 +693,8 @@ pub fn access_levels() -> Query(List(AccessLevel)) {
 
 pub fn find_controller(identifier: String) -> Query(FoundController) {
   query("_delegation.resolveController", [#("identifier", identifier)], {
-    use did <- decode.field("did", decode.string)
-    use handle <- optional_text("handle")
+    use did <- decode.field("did", did.decoder())
+    use handle <- optional_handle()
     use server <- optional_text("pdsUrl")
     use is_local <- decode.field("isLocal", decode.bool)
 
@@ -710,7 +711,7 @@ pub fn delegation_log(offset: Int) -> Query(LogPage) {
         "entries",
         decode.list({
           use id <- decode.field("id", decode.string)
-          use actor <- decode.field("actorDid", decode.string)
+          use actor <- decode.field("actorDid", did.decoder())
           use action <- decode.field("actionType", decode.string)
           use at <- decode.field("createdAt", date.decoder())
 
@@ -1062,20 +1063,20 @@ fn record_body(place: List(#(String, Json)), record: String) -> String {
   <> "}"
 }
 
-pub fn set_account_invites(did: String, enabled: Bool) -> Command(Nil) {
+pub fn set_account_invites(account: Did, enabled: Bool) -> Command(Nil) {
   command(
     case enabled {
       True -> "com.atproto.admin.enableAccountInvites"
       False -> "com.atproto.admin.disableAccountInvites"
     },
-    json.object([#("account", json.string(did))]),
+    json.object([#("account", did.to_json(account))]),
   )
 }
 
-pub fn delete_account_as_admin(did: String) -> Command(Nil) {
+pub fn delete_account_as_admin(account: Did) -> Command(Nil) {
   command(
     "com.atproto.admin.deleteAccount",
-    json.object([#("did", json.string(did))]),
+    json.object([#("did", did.to_json(account))]),
   )
 }
 
@@ -1120,20 +1121,20 @@ pub fn unlink_signal() -> Command(Nil) {
   command("_admin.unlinkSignalDevice", json.object([]))
 }
 
-pub fn add_controller(did: String, access: String) -> Command(Nil) {
+pub fn add_controller(controller: Did, access: String) -> Command(Nil) {
   command(
     "_delegation.addController",
     json.object([
-      #("controller_did", json.string(did)),
+      #("controller_did", did.to_json(controller)),
       #("granted_scopes", json.string(access)),
     ]),
   )
 }
 
-pub fn remove_controller(did: String) -> Command(Nil) {
+pub fn remove_controller(controller: Did) -> Command(Nil) {
   command(
     "_delegation.removeController",
-    json.object([#("controller_did", json.string(did))]),
+    json.object([#("controller_did", did.to_json(controller))]),
   )
 }
 
@@ -1156,10 +1157,10 @@ pub fn create_controlled_account(
   )
 }
 
-pub fn delete_controlled_account(did: String) -> Command(Nil) {
+pub fn delete_controlled_account(account: Did) -> Command(Nil) {
   command(
     "_delegation.deleteControlledAccount",
-    json.object([#("did", json.string(did))]),
+    json.object([#("did", did.to_json(account))]),
   )
 }
 
@@ -1570,6 +1571,12 @@ fn accepted(
     | Error(session.NothingStored)
     | Error(session.Failed(_)) -> Error(Failed(Unreachable))
   }
+}
+
+fn optional_handle(
+  next: fn(Option(Handle)) -> Decoder(value),
+) -> Decoder(value) {
+  decode.optional_field("handle", None, decode.optional(handle.decoder()), next)
 }
 
 fn optional_text(

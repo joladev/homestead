@@ -1,4 +1,5 @@
 import at/did
+import at/handle
 import gleam/json
 import gleam/option.{None, Some}
 import homestead/tern.{Actor}
@@ -13,19 +14,17 @@ pub fn a_search_response_decodes_to_its_actors_test() {
       {\"did\":\"did:plc:w7h2n5t3c3x6v2r4m2k4q7yp\",\"handle\":\"bare.harbor.example\",\"labels\":[]}
     ]}"
 
+  let assert Ok(noor) = handle.from_string("noor.harbor.example")
+  let assert Ok(bare_handle) = handle.from_string("bare.harbor.example")
+
   assert json.parse(body, tern.search_decoder())
     == Ok([
       Actor(
         did: named,
-        handle: "noor.harbor.example",
+        handle: noor,
         display_name: Some("Noor"),
         avatar: Some("https://cdn.example/noor.jpg"),
       ),
-      Actor(
-        did: bare,
-        handle: "bare.harbor.example",
-        display_name: None,
-        avatar: None,
-      ),
+      Actor(did: bare, handle: bare_handle, display_name: None, avatar: None),
     ])
 }

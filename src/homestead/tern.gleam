@@ -1,4 +1,5 @@
 import at/did.{type Did}
+import at/handle.{type Handle}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/option.{type Option, None}
@@ -6,7 +7,7 @@ import gleam/option.{type Option, None}
 pub type Actor {
   Actor(
     did: Did,
-    handle: String,
+    handle: Handle,
     display_name: Option(String),
     avatar: Option(String),
   )
@@ -25,7 +26,7 @@ pub fn search_decoder() -> Decoder(List(Actor)) {
 
 fn actor_decoder() -> Decoder(Actor) {
   use did <- decode.field("did", did.decoder())
-  use handle <- decode.field("handle", decode.string)
+  use handle <- decode.field("handle", handle.decoder())
   use display_name <- decode.optional_field(
     "displayName",
     None,

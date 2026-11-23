@@ -1,3 +1,5 @@
+import at/did.{type Did}
+import at/handle.{type Handle}
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -8,6 +10,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/delegation/access
+import homestead/identity
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
@@ -68,7 +71,7 @@ pub fn has_any(model: Model) -> Bool {
   }
 }
 
-pub fn names(model: Model) -> List(#(String, String)) {
+pub fn names(model: Model) -> List(#(Did, Handle)) {
   case model.controllers {
     Loaded(value: controllers) ->
       list.filter_map(controllers, fn(controller) {
@@ -256,7 +259,7 @@ fn load(session: Session) -> Effect(Message) {
 }
 
 fn remove_button_id(controller: Controller) -> String {
-  "remove-controller-" <> controller.did
+  "remove-controller-" <> did.to_string(controller.did)
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
@@ -304,7 +307,7 @@ pub fn view(
           layout.listing(
             empty: "No controllers",
             rows: list.map(controllers, fn(item) {
-              #(item.did, view_controller(item, model, levels))
+              #(did.to_string(item.did), view_controller(item, model, levels))
             }),
             actions: [],
           )
@@ -334,7 +337,7 @@ fn view_controller(
   model: Model,
   levels: Remote(List(AccessLevel)),
 ) -> Element(Message) {
-  let name = option.unwrap(controller.handle, controller.did)
+  let name = identity.name(controller.did, controller.handle)
 
   case model.action == ConfirmingRemove(controller:) {
     True ->
@@ -454,7 +457,7 @@ fn view_form(
           tone: layout.Plain,
           name: "Found",
           details: [
-            html.text(option.unwrap(controller.handle, controller.did) <> " "),
+            html.text(identity.name(controller.did, controller.handle) <> " "),
             layout.dim(case controller.is_local, controller.server {
               False, Some(server) -> "\u{00B7} on " <> server
               True, _ | False, None -> ""

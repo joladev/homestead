@@ -1,4 +1,5 @@
 import at/did.{type Did}
+import at/handle.{type Handle}
 import gleam/javascript/array.{type Array}
 import gleam/javascript/promise.{type Promise}
 import gleam/list
@@ -28,11 +29,11 @@ pub type Client {
 
 pub type Departure {
   SignedOut
-  SwitchedAccount(account: String)
+  SwitchedAccount(account: Did)
 }
 
 pub type StoredAccount {
-  StoredAccount(did: String, handle: Option(String))
+  StoredAccount(account: Did, handle: Option(Handle))
 }
 
 pub type Problem {
@@ -76,11 +77,8 @@ pub fn begin(account: Did) -> Promise(Result(Uri, Problem)) {
   uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
 }
 
-pub fn act_as(
-  session: Session,
-  account: String,
-) -> Promise(Result(Uri, Problem)) {
-  use login <- promise.map(do_act_as(session, account, scope()))
+pub fn act_as(session: Session, account: Did) -> Promise(Result(Uri, Problem)) {
+  use login <- promise.map(do_act_as(session, did.to_string(account), scope()))
   use login <- result.try(result.map_error(login, problem))
 
   uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
@@ -102,14 +100,14 @@ pub fn complete(answer: String) -> Promise(Result(Session, Problem)) {
 }
 
 pub fn restore() -> Promise(Result(Session, Problem)) {
-  case stored_account() {
+  case stored_account() |> result.try(did.from_string) {
     Ok(account) -> switch_to(account)
     Error(Nil) -> promise.resolve(Error(NothingStored))
   }
 }
 
-pub fn switch_to(account: String) -> Promise(Result(Session, Problem)) {
-  do_restore(account) |> promise.map(checked)
+pub fn switch_to(account: Did) -> Promise(Result(Session, Problem)) {
+  do_restore(did.to_string(account)) |> promise.map(checked)
 }
 
 fn checked(session: Result(Session, String)) -> Result(Session, Problem) {
@@ -128,8 +126,14 @@ pub fn expire(session: Session) -> Nil
 
 pub fn stored_accounts() -> List(StoredAccount) {
   array.to_list(do_stored_accounts())
-  |> list.map(fn(did) {
-    StoredAccount(did:, handle: option.from_result(remembered_handle(did)))
+  |> list.filter_map(did.from_string)
+  |> list.map(fn(account) {
+    StoredAccount(
+      account:,
+      handle: remembered_handle(did.to_string(account))
+        |> result.try(handle.from_string)
+        |> option.from_result,
+    )
   })
   |> list.sort(fn(one, other) {
     string.compare(account_name(one), account_name(other))
@@ -138,16 +142,24 @@ pub fn stored_accounts() -> List(StoredAccount) {
 
 pub fn account_name(account: StoredAccount) -> String {
   case account.handle {
-    Some(handle) -> "@" <> handle
-    None -> account.did
+    Some(handle) -> "@" <> handle.to_string(handle)
+    None -> did.to_string(account.account)
   }
 }
 
+pub fn remove(account: Did) -> Promise(Nil) {
+  do_remove(did.to_string(account))
+}
+
 @external(javascript, "./session_ffi.mjs", "remove")
-pub fn remove(account: String) -> Promise(Nil)
+fn do_remove(account: String) -> Promise(Nil)
+
+pub fn remember_handle(session: Session, handle: Handle) -> Nil {
+  do_remember_handle(session, handle.to_string(handle))
+}
 
 @external(javascript, "./session_ffi.mjs", "rememberHandle")
-pub fn remember_handle(session: Session, handle: String) -> Nil
+fn do_remember_handle(session: Session, handle: String) -> Nil
 
 @external(javascript, "./session_ffi.mjs", "end")
 pub fn end(session: Session) -> Promise(Nil)

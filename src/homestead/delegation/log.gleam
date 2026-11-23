@@ -1,8 +1,12 @@
+import at/did.{type Did}
+import at/handle.{type Handle}
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/date
+import homestead/identity
 import homestead/layout
 import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
@@ -101,7 +105,7 @@ pub fn describe_action(action: String) -> String {
 
 pub fn view(
   model: Model,
-  names: List(#(String, String)),
+  names: List(#(Did, Handle)),
 ) -> List(Element(Message)) {
   [
     layout.block({
@@ -120,9 +124,9 @@ pub fn view(
                   html.text(describe_action(entry.action) <> " "),
                   layout.dim(
                     "\u{00B7} by "
-                    <> result.unwrap(
-                      list.key_find(names, entry.actor),
+                    <> identity.name(
                       entry.actor,
+                      list.key_find(names, entry.actor) |> option.from_result,
                     ),
                   ),
                 ],

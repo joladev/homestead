@@ -1,4 +1,5 @@
 import at/did.{type Did}
+import at/handle
 import gleam/bool
 import gleam/dynamic/decode
 import gleam/int
@@ -85,7 +86,7 @@ pub fn init(
       page:,
       account: Loading,
       other_accounts: list.filter(session.stored_accounts(), fn(account) {
-        account.did != did.to_string(session.account(session))
+        account.account != session.account(session)
       }),
       is_account_menu_open: False,
       is_menu_open: False,
@@ -286,7 +287,7 @@ pub opaque type Message {
   UserDismissedAccountMenu
   UserLeftAccountMenu
   UserMovedInAccountMenu(to: Int)
-  UserPickedAccount(did: String)
+  UserPickedAccount(did: Did)
   UserClickedSignOut
   ServerEndedSession
 }
@@ -655,7 +656,7 @@ fn view_top_bar(
   }
 
   let account_name = case model.account {
-    Loaded(value: account) -> Ok("@" <> account.handle)
+    Loaded(value: account) -> Ok("@" <> handle.to_string(account.handle))
     Failed(_) -> Ok(did.to_string(session.account(model.session)))
     Loading -> Error(Nil)
   }
@@ -766,9 +767,12 @@ fn view_menu(
             html.div([], [
               html.span([], [html.text("Switch account")]),
               ..list.map(others, fn(account) {
-                html.button([event.on_click(UserPickedAccount(account.did))], [
-                  html.text(session.account_name(account)),
-                ])
+                html.button(
+                  [event.on_click(UserPickedAccount(account.account))],
+                  [
+                    html.text(session.account_name(account)),
+                  ],
+                )
               })
             ])
         },
@@ -803,7 +807,7 @@ fn view_account_menu(
           html.button(
             [
               attribute.class("handle"),
-              event.on_click(UserPickedAccount(account.did)),
+              event.on_click(UserPickedAccount(account.account)),
               ..attributes
             ],
             [html.text(session.account_name(account))],

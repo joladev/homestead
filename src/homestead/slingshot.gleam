@@ -23,13 +23,13 @@ pub fn identity_request(account: Did) -> Request(String) {
   |> request.set_query([#("identifier", did.to_string(account))])
 }
 
-pub fn handle_decoder() -> Decoder(String) {
-  decode.at(["handle"], decode.string)
+pub fn handle_decoder() -> Decoder(Handle) {
+  decode.at(["handle"], handle.decoder())
 }
 
 pub fn verified_handle(
-  result: Result(String, rsvp.Error(String)),
-) -> Result(Option(String), Nil) {
+  result: Result(Handle, rsvp.Error(String)),
+) -> Result(Option(Handle), Nil) {
   case result {
     Ok(handle) -> Ok(Some(handle))
     Error(rsvp.HttpError(response)) if response.status == 400 -> Ok(None)

@@ -33,8 +33,8 @@ pub opaque type Model {
   Model(
     directory: Uri,
     accounts: List(StoredAccount),
-    removing: List(String),
-    chosen_account: Option(String),
+    removing: List(Did),
+    chosen_account: Option(Did),
     identifier: String,
     suggestions: Suggestions,
     lookup: Lookup,
@@ -85,14 +85,14 @@ pub fn report_ended_session(model: Model) -> Model {
   Model(..model, lookup: Failed(SessionEnded))
 }
 
-pub fn chosen_account(model: Model) -> Option(String) {
+pub fn chosen_account(model: Model) -> Option(Did) {
   model.chosen_account
 }
 
 pub opaque type Message {
-  UserPickedAccount(did: String)
-  UserSignedOutAccount(did: String)
-  BrowserRemovedAccount(did: String)
+  UserPickedAccount(did: Did)
+  UserSignedOutAccount(did: Did)
+  BrowserRemovedAccount(did: Did)
   UserTypedIdentifier(identifier: String)
   UserPausedTyping(query: String)
   UserPressedArrow(direction: Direction)
@@ -188,7 +188,7 @@ fn update_while_idle(
     UserPickedSuggestion(actor:) -> #(
       Model(
         ..model,
-        identifier: actor.handle,
+        identifier: handle.to_string(actor.handle),
         suggestions: Hidden(actors: []),
         lookup: Looking,
       ),
@@ -218,7 +218,7 @@ fn update_while_looking(
     TernReturnedMatches(handle:, result: found) -> {
       let actor = {
         use actors <- result.try(result.replace_error(found, Nil))
-        list.find(actors, fn(actor) { actor.handle == handle.to_string(handle) })
+        list.find(actors, fn(actor) { actor.handle == handle })
       }
 
       case actor {
@@ -331,15 +331,15 @@ fn update_while_looking(
   }
 }
 
-fn without_account(model: Model, did: String) -> Model {
+fn without_account(model: Model, did: Did) -> Model {
   Model(
     ..model,
-    accounts: list.filter(model.accounts, fn(account) { account.did != did }),
+    accounts: list.filter(model.accounts, fn(account) { account.account != did }),
     removing: list.filter(model.removing, fn(removing) { removing != did }),
   )
 }
 
-fn remove_account(did: String) -> Effect(Message) {
+fn remove_account(did: Did) -> Effect(Message) {
   browser.await(fn() { session.remove(did) }, fn(_) {
     BrowserRemovedAccount(did)
   })
@@ -374,7 +374,7 @@ fn start_lookup(model: Model, text: String) -> #(Model, Effect(Message)) {
   }
   let suggested =
     list.find(model.suggestions.actors, fn(actor) {
-      actor.handle == string.lowercase(identifier)
+      Ok(actor.handle) == handle.from_string(identifier)
     })
   let looking =
     Model(
@@ -469,14 +469,14 @@ fn view_accounts(model: Model) -> Element(Message) {
           let name = session.account_name(account)
           let is_busy =
             model.lookup == Looking
-            || list.contains(model.removing, account.did)
+            || list.contains(model.removing, account.account)
 
           html.li([], [
             html.button(
               [
                 attribute.class("account"),
                 attribute.disabled(is_busy),
-                event.on_click(UserPickedAccount(account.did)),
+                event.on_click(UserPickedAccount(account.account)),
               ],
               [html.text(name)],
             ),
@@ -485,7 +485,7 @@ fn view_accounts(model: Model) -> Element(Message) {
                 attribute.class("action"),
                 attribute.aria_label("Sign out " <> name),
                 attribute.disabled(is_busy),
-                event.on_click(UserSignedOutAccount(account.did)),
+                event.on_click(UserSignedOutAccount(account.account)),
               ],
               [html.text("Sign out")],
             ),
@@ -618,7 +618,7 @@ fn view_suggestions(
                   Some(name) -> html.span([], [html.text(name)])
                   None -> element.none()
                 },
-                html.code([], [html.text("@" <> actor.handle)]),
+                html.code([], [html.text("@" <> handle.to_string(actor.handle))]),
               ]),
             ],
           )

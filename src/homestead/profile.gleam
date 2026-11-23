@@ -42,7 +42,7 @@ pub opaque type Model {
 
 type Check {
   Check(
-    verified: Remote(Option(String)),
+    verified: Remote(Option(Handle)),
     record: Remote(Finding),
     file: Remote(Finding),
   )
@@ -142,7 +142,7 @@ pub opaque type Message {
   UserSubmittedHandle
   ServerChangedHandle(result: Result(Nil, Problem))
   UserClickedCheckHandle
-  SlingshotReturnedHandle(result: Result(String, rsvp.Error(String)))
+  SlingshotReturnedHandle(result: Result(Handle, rsvp.Error(String)))
   DnsReturnedRecords(result: Result(Response(String), rsvp.Error(String)))
   HandleHostReturnedFile(result: Result(Response(String), rsvp.Error(String)))
   UserClickedCopy(text: String, copied: Copied)
@@ -572,13 +572,8 @@ fn check_handle(
   session: Session,
   account: Remote(Account),
 ) -> #(Check, Effect(Message)) {
-  let handle = case account {
-    Loaded(value: account) -> handle.from_string(account.handle)
-    Loading | Failed(_) -> Error(Nil)
-  }
-
-  case handle {
-    Ok(handle) -> #(
+  case account {
+    Loaded(value: tranquil.Account(handle:, ..)) -> #(
       Check(verified: Loading, record: Loading, file: Loading),
       effect.batch([
         rsvp.send(
@@ -595,11 +590,15 @@ fn check_handle(
         ),
       ]),
     )
-    Error(Nil) -> #(
+    Loading -> #(
+      Check(verified: Loading, record: Loading, file: Loading),
+      effect.none(),
+    )
+    Failed(problem:) -> #(
       Check(
-        verified: Failed(tranquil.NotUnderstood),
-        record: Failed(tranquil.NotUnderstood),
-        file: Failed(tranquil.NotUnderstood),
+        verified: Failed(problem:),
+        record: Failed(problem:),
+        file: Failed(problem:),
       ),
       effect.none(),
     )
@@ -660,7 +659,7 @@ pub fn view(model: Model) -> Element(Message) {
         model.check,
         model.account,
         model.server,
-        did.to_string(session.account(model.session)),
+        session.account(model.session),
       ),
     ]),
     layout.section("email", [
@@ -693,7 +692,7 @@ fn view_handle(
   check: Check,
   account: Remote(Account),
   server: Remote(Server),
-  did: String,
+  owner: Did,
 ) -> Element(Message) {
   let resolves = {
     use account <- remote.then(account)
@@ -718,7 +717,7 @@ fn view_handle(
           use account <- layout.value(account)
 
           html.span([attribute.class("lines")], [
-            html.code([], [html.text("@" <> account.handle)]),
+            html.code([], [html.text("@" <> handle.to_string(account.handle))]),
             case resolves {
               Loading -> layout.pending()
               Loaded(value: True) -> layout.dim("Resolves to this account")
@@ -789,7 +788,7 @@ fn view_handle(
       ),
       case form.domain, server {
         OwnDomain, Loaded(_) | OwnDomain, Failed(_) ->
-          view_domain_setup(form, did)
+          view_domain_setup(form, owner)
         OwnDomain, Loading | ServerDomain(_), _ -> element.none()
       },
       view_refusal(form.submission),
@@ -815,12 +814,13 @@ fn view_finding(subject: String, finding: Remote(Finding)) -> Element(Message) {
   }
 }
 
-fn view_domain_setup(form: HandleForm, did: String) -> Element(Message) {
+fn view_domain_setup(form: HandleForm, account: Did) -> Element(Message) {
   let domain = case string.trim(form.name) {
     "" -> "yourdomain.com"
     name -> name
   }
-  let record = "did=" <> did
+  let identifier = did.to_string(account)
+  let record = "did=" <> identifier
   let code = fn(text: String) {
     html.code([attribute.class("long")], [html.text(text)])
   }
@@ -862,12 +862,12 @@ fn view_domain_setup(form: HandleForm, did: String) -> Element(Message) {
           code("https://" <> domain <> "/.well-known/atproto-did"),
           html.span([], [
             html.text("containing "),
-            code(did),
+            code(identifier),
             note(CopiedFileContent),
           ]),
         ]),
       ],
-      actions: [copy(did, CopiedFileContent)],
+      actions: [copy(identifier, CopiedFileContent)],
     ),
   ])
 }
@@ -1021,7 +1021,7 @@ fn view_email(
 fn view_contact(
   form: ContactForm,
   server: Server,
-  handle: String,
+  handle: Handle,
 ) -> List(Element(Message)) {
   let is_sending = form.submission == Sending
   let channels = server.contact_channels
@@ -1121,9 +1121,9 @@ fn view_contact(
 fn view_bot_step(
   channel: Channel,
   server: Server,
-  handle: String,
+  handle: Handle,
 ) -> Element(Message) {
-  let start = string.replace(handle, each: ".", with: "_")
+  let start = string.replace(handle.to_string(handle), each: ".", with: "_")
   let bot = case channel {
     tranquil.Discord ->
       option.map(server.discord_bot, fn(bot) {

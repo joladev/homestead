@@ -298,7 +298,7 @@ fn update_sign_in(
 
 fn switch_account(
   model: Model,
-  account: String,
+  account: Did,
   to: Route,
 ) -> #(Model, Effect(Message)) {
   let path = route.to_path(to)
@@ -321,7 +321,7 @@ fn restore_session() -> Effect(Message) {
   browser.await(session.restore, BrowserRestoredSession)
 }
 
-fn restore_account(account: String) -> Effect(Message) {
+fn restore_account(account: Did) -> Effect(Message) {
   browser.await(fn() { session.switch_to(account) }, BrowserRestoredSession)
 }
 

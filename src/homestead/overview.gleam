@@ -1,4 +1,5 @@
 import at/did
+import at/handle.{type Handle}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -30,7 +31,7 @@ pub opaque type Model {
     authenticator: Remote(Authenticator),
     has_password: Remote(Bool),
     sessions: Remote(List(ActiveSession)),
-    verified_handle: Remote(Option(String)),
+    verified_handle: Remote(Option(Handle)),
     copying: Copying,
   )
 }
@@ -93,7 +94,7 @@ pub opaque type Message {
   ServerReturnedAuthenticator(result: Result(Authenticator, Problem))
   ServerReturnedPasswordStatus(result: Result(Bool, Problem))
   ServerReturnedSessions(result: Result(List(ActiveSession), Problem))
-  SlingshotReturnedHandle(result: Result(String, rsvp.Error(String)))
+  SlingshotReturnedHandle(result: Result(Handle, rsvp.Error(String)))
   UserClickedCopy(text: String)
   BrowserCopiedText(result: Result(Nil, Nil))
 }
@@ -306,7 +307,7 @@ pub fn view(
     use account <- remote.then(account)
     use display_name <- remote.map(model.display_name)
 
-    #(display_name, "@" <> account.handle)
+    #(display_name, "@" <> handle.to_string(account.handle))
   }
 
   layout.page([

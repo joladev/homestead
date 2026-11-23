@@ -1,3 +1,5 @@
+import at/did.{type Did}
+import at/handle.{type Handle}
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -9,6 +11,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/delegation/access
+import homestead/identity
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
@@ -70,7 +73,7 @@ pub fn has_any(model: Model) -> Bool {
   }
 }
 
-pub fn names(model: Model) -> List(#(String, String)) {
+pub fn names(model: Model) -> List(#(Did, Handle)) {
   case model.accounts {
     Loaded(value: accounts) ->
       list.filter_map(accounts, fn(account) {
@@ -222,7 +225,7 @@ fn load(session: Session) -> Effect(Message) {
 }
 
 fn delete_button_id(account: ControlledAccount) -> String {
-  "delete-controlled-" <> account.did
+  "delete-controlled-" <> did.to_string(account.did)
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
@@ -279,7 +282,7 @@ pub fn view(
           layout.listing(
             empty: "No controlled accounts",
             rows: list.map(accounts, fn(item) {
-              #(item.did, view_account(item, model, levels))
+              #(did.to_string(item.did), view_account(item, model, levels))
             }),
             actions: [],
           )
@@ -322,7 +325,7 @@ fn view_account(
   model: Model,
   levels: Remote(List(AccessLevel)),
 ) -> Element(Message) {
-  let name = option.unwrap(account.handle, account.did)
+  let name = identity.name(account.did, account.handle)
 
   case model.action == ConfirmingDelete(account:) {
     True ->

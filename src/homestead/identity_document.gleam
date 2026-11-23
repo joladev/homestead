@@ -1,4 +1,4 @@
-import at/did
+import at/did.{type Did}
 import at/did_document
 import at/handle
 import gleam/dynamic/decode
@@ -29,7 +29,7 @@ import rsvp
 
 pub opaque type Model {
   Model(
-    account: String,
+    account: Did,
     local_offset: Duration,
     identity: Remote(Identity),
     history: History,
@@ -84,7 +84,7 @@ pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
 
   #(
     Model(
-      account: did.to_string(account),
+      account:,
       local_offset: calendar.local_offset(),
       identity: Loading,
       history:,
@@ -189,9 +189,9 @@ pub fn view(model: Model) -> Element(Message) {
       layout.block([
         layout.copy_row(
           name: "DID",
-          value: model.account,
+          value: did.to_string(model.account),
           note: note(CopiedDid),
-          on_copy: UserClickedCopy(model.account, CopiedDid),
+          on_copy: UserClickedCopy(did.to_string(model.account), CopiedDid),
         ),
         ..list.append(
           {

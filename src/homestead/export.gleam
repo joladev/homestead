@@ -1,3 +1,4 @@
+import at/handle.{type Handle}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -55,9 +56,9 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
 pub opaque type Message {
   ServerReturnedAccount(result: Result(Account, Problem))
   ServerReturnedMedia(found: List(String), result: Result(MediaPage, Problem))
-  UserClickedDownload(handle: String)
+  UserClickedDownload(handle: Handle)
   BrowserSavedRepository(result: Result(Nil, Problem))
-  UserClickedSaveMedia(handle: String, media: List(String))
+  UserClickedSaveMedia(handle: Handle, media: List(String))
   BrowserStartedSaving(stopper: Stopper)
   BrowserSavedMedia(done: Int)
   UserClickedCancel(stopper: Stopper)
@@ -165,12 +166,12 @@ fn load_media(
   )
 }
 
-pub fn filename(handle: String) -> String {
-  handle <> "-repo.car"
+pub fn filename(handle: Handle) -> String {
+  handle.to_string(handle) <> "-repo.car"
 }
 
-pub fn media_filename(handle: String) -> String {
-  handle <> "-media.zip"
+pub fn media_filename(handle: Handle) -> String {
+  handle.to_string(handle) <> "-media.zip"
 }
 
 pub fn view(model: Model) -> Element(Message) {
@@ -228,7 +229,7 @@ pub fn view(model: Model) -> Element(Message) {
 
 fn view_media(
   model: Model,
-  handle: String,
+  handle: Handle,
   media: List(String),
 ) -> Element(Message) {
   let #(details, actions) = case media, model.archive {

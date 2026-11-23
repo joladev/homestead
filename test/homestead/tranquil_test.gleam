@@ -1,4 +1,5 @@
 import at/did.{type Did}
+import at/handle
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -28,9 +29,11 @@ pub fn the_account_is_read_from_the_session_answer_test() {
   let body =
     "{\"handle\":\"noor.harbor.example\",\"did\":\"did:plc:k4q7m2x3vt5hwz6r2ypbn7cs\",\"active\":true,\"preferredChannel\":\"email\",\"preferredChannelVerified\":false,\"isAdmin\":true,\"email\":\"noor@harbor.example\",\"emailConfirmed\":false}"
 
+  let assert Ok(noor) = handle.from_string("noor.harbor.example")
+
   assert tranquil.parse(tranquil.account(), body)
     == Ok(Account(
-      handle: "noor.harbor.example",
+      handle: noor,
       email: Some("noor@harbor.example"),
       email_verified: False,
       contact_channel: Email,
@@ -226,16 +229,18 @@ pub fn a_listed_record_takes_its_key_from_its_address_test() {
 pub fn a_delegation_log_page_carries_its_total_test() {
   let body =
     "{\"entries\":[{\"id\":\"e1\",\"delegatedDid\":\"did:plc:shop\",
-      \"actorDid\":\"did:plc:noor\",\"controllerDid\":null,
+      \"actorDid\":\"did:plc:k4q7m2x3vt5hwz6r2ypbn7cs\",\"controllerDid\":null,
       \"actionType\":\"TokenIssued\",\"actionDetails\":null,
       \"createdAt\":\"2026-11-21T19:04:36Z\"}],\"total\":23}"
+
+  let assert Ok(actor) = did.from_string("did:plc:k4q7m2x3vt5hwz6r2ypbn7cs")
 
   assert tranquil.parse(tranquil.delegation_log(0), body)
     == Ok(LogPage(
       entries: [
         LogEntry(
           id: "e1",
-          actor: "did:plc:noor",
+          actor:,
           action: "TokenIssued",
           at: timestamp.from_unix_seconds(1_795_287_876),
         ),
