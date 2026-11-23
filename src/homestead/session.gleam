@@ -21,7 +21,11 @@ const scopes = [
   "account:*?action=manage",
 ]
 
-pub type Session
+pub opaque type Session {
+  Session(agent: Agent, account: Did)
+}
+
+type Agent
 
 pub type Client {
   Client(id: String, redirect_uri: String)
@@ -78,7 +82,11 @@ pub fn begin(account: Did) -> Promise(Result(Uri, Problem)) {
 }
 
 pub fn act_as(session: Session, account: Did) -> Promise(Result(Uri, Problem)) {
-  use login <- promise.map(do_act_as(session, did.to_string(account), scope()))
+  use login <- promise.map(do_act_as(
+    session.agent,
+    did.to_string(account),
+    scope(),
+  ))
   use login <- result.try(result.map_error(login, problem))
 
   uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
@@ -110,19 +118,27 @@ pub fn switch_to(account: Did) -> Promise(Result(Session, Problem)) {
   do_restore(did.to_string(account)) |> promise.map(checked)
 }
 
-fn checked(session: Result(Session, String)) -> Result(Session, Problem) {
-  use session <- result.try(result.map_error(session, problem))
+fn checked(agent: Result(Agent, String)) -> Result(Session, Problem) {
+  use agent <- result.try(result.map_error(agent, problem))
 
-  did.from_string(do_account(session))
-  |> result.replace(session)
+  did.from_string(do_account(agent))
+  |> result.map(Session(agent:, account: _))
   |> result.replace_error(Failed(error: "InvalidAccount"))
 }
 
+pub fn when_expired(session: Session, do: fn() -> Nil) -> Nil {
+  do_watch(session.agent, do)
+}
+
 @external(javascript, "./session_ffi.mjs", "watch")
-pub fn when_expired(session: Session, do: fn() -> Nil) -> Nil
+fn do_watch(agent: Agent, do: fn() -> Nil) -> Nil
+
+pub fn expire(session: Session) -> Nil {
+  do_expire(session.agent)
+}
 
 @external(javascript, "./session_ffi.mjs", "expire")
-pub fn expire(session: Session) -> Nil
+fn do_expire(agent: Agent) -> Nil
 
 pub fn stored_accounts() -> List(StoredAccount) {
   array.to_list(do_stored_accounts())
@@ -155,20 +171,24 @@ pub fn remove(account: Did) -> Promise(Nil) {
 fn do_remove(account: String) -> Promise(Nil)
 
 pub fn remember_handle(session: Session, handle: Handle) -> Nil {
-  do_remember_handle(session, handle.to_string(handle))
+  do_remember_handle(session.agent, handle.to_string(handle))
 }
 
 @external(javascript, "./session_ffi.mjs", "rememberHandle")
-fn do_remember_handle(session: Session, handle: String) -> Nil
+fn do_remember_handle(agent: Agent, handle: String) -> Nil
+
+pub fn end(session: Session) -> Promise(Nil) {
+  do_end(session.agent)
+}
 
 @external(javascript, "./session_ffi.mjs", "end")
-pub fn end(session: Session) -> Promise(Nil)
+fn do_end(agent: Agent) -> Promise(Nil)
 
 pub fn get(
   session: Session,
   path: String,
 ) -> Promise(Result(#(Int, String), Problem)) {
-  do_get(session, path) |> promise.map(result.map_error(_, problem))
+  do_get(session.agent, path) |> promise.map(result.map_error(_, problem))
 }
 
 pub fn post(
@@ -176,7 +196,8 @@ pub fn post(
   path: String,
   body: String,
 ) -> Promise(Result(#(Int, String), Problem)) {
-  do_post(session, path, body) |> promise.map(result.map_error(_, problem))
+  do_post(session.agent, path, body)
+  |> promise.map(result.map_error(_, problem))
 }
 
 pub fn upload(
@@ -184,7 +205,8 @@ pub fn upload(
   path: String,
   file: File,
 ) -> Promise(Result(#(Int, String), Problem)) {
-  do_upload(session, path, file) |> promise.map(result.map_error(_, problem))
+  do_upload(session.agent, path, file)
+  |> promise.map(result.map_error(_, problem))
 }
 
 pub fn save(
@@ -192,27 +214,37 @@ pub fn save(
   path: String,
   filename: String,
 ) -> Promise(Result(#(Int, String), Problem)) {
-  do_save(session, path, filename)
+  do_save(session.agent, path, filename)
   |> promise.map(result.map_error(_, problem))
 }
 
+pub fn forget(session: Session) -> Nil {
+  do_forget(session.agent)
+}
+
 @external(javascript, "./session_ffi.mjs", "forget")
-pub fn forget(session: Session) -> Nil
+fn do_forget(agent: Agent) -> Nil
 
 pub fn account(session: Session) -> Did {
-  let assert Ok(account) = did.from_string(do_account(session))
-
-  account
+  session.account
 }
 
 @external(javascript, "./session_ffi.mjs", "account")
-fn do_account(session: Session) -> String
+fn do_account(agent: Agent) -> String
+
+pub fn server(session: Session) -> String {
+  do_server(session.agent)
+}
 
 @external(javascript, "./session_ffi.mjs", "server")
-pub fn server(session: Session) -> String
+fn do_server(agent: Agent) -> String
+
+pub fn origin(session: Session) -> String {
+  do_origin(session.agent)
+}
 
 @external(javascript, "./session_ffi.mjs", "origin")
-pub fn origin(session: Session) -> String
+fn do_origin(agent: Agent) -> String
 
 pub fn scope() -> String {
   string.join(scopes, " ")
@@ -238,7 +270,7 @@ fn do_begin(account: String, scope: String) -> Promise(Result(String, String))
 
 @external(javascript, "./session_ffi.mjs", "actAs")
 fn do_act_as(
-  session: Session,
+  agent: Agent,
   account: String,
   scope: String,
 ) -> Promise(Result(String, String))
@@ -250,7 +282,7 @@ fn do_begin_sign_up(
 ) -> Promise(Result(String, String))
 
 @external(javascript, "./session_ffi.mjs", "complete")
-fn do_complete(answer: String) -> Promise(Result(Session, String))
+fn do_complete(answer: String) -> Promise(Result(Agent, String))
 
 @external(javascript, "./session_ffi.mjs", "storedAccount")
 fn stored_account() -> Result(String, Nil)
@@ -262,31 +294,28 @@ fn do_stored_accounts() -> Array(String)
 fn remembered_handle(account: String) -> Result(String, Nil)
 
 @external(javascript, "./session_ffi.mjs", "restore")
-fn do_restore(account: String) -> Promise(Result(Session, String))
+fn do_restore(account: String) -> Promise(Result(Agent, String))
 
 @external(javascript, "./session_ffi.mjs", "get")
-fn do_get(
-  session: Session,
-  path: String,
-) -> Promise(Result(#(Int, String), String))
+fn do_get(agent: Agent, path: String) -> Promise(Result(#(Int, String), String))
 
 @external(javascript, "./session_ffi.mjs", "post")
 fn do_post(
-  session: Session,
+  agent: Agent,
   path: String,
   body: String,
 ) -> Promise(Result(#(Int, String), String))
 
 @external(javascript, "./session_ffi.mjs", "save")
 fn do_save(
-  session: Session,
+  agent: Agent,
   path: String,
   filename: String,
 ) -> Promise(Result(#(Int, String), String))
 
 @external(javascript, "./session_ffi.mjs", "upload")
 fn do_upload(
-  session: Session,
+  agent: Agent,
   path: String,
   file: File,
 ) -> Promise(Result(#(Int, String), String))
