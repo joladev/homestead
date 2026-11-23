@@ -39,6 +39,21 @@ gleam test
 gleam run -m lustre/dev build --minify
 ```
 
+## Configuration
+
+You can run your own Homestead! Feel free to fork and make the design your own, or use it as is. All the dependencies can be configured with environment variables:
+
+| Variable                  | Default                                |
+| ------------------------- | -------------------------------------- |
+| `HOMESTEAD_PLC`           | `https://plc.directory`                |
+| `HOMESTEAD_TYPEAHEAD`     | `https://typeahead.cove.town`          |
+| `HOMESTEAD_SLINGSHOT`     | `https://slingshot.cove.town`          |
+| `HOMESTEAD_CONSTELLATION` | `https://constellation.microcosm.blue` |
+| `HOMESTEAD_APPVIEW`       | `https://public.api.bsky.app`          |
+| `HOMESTEAD_LABEL_RELAY`   | `https://labelers.firehose.stream`     |
+| `HOMESTEAD_DNS`           | `https://dns10.quad9.net/dns-query`    |
+
+
 ## Contributing
 
 PRs are very welcome, especially efforts to make the code more idiomatic Gleam. AI-assisted contributions are accepted, but all human facing text must be written by a human. This includes PR descriptions, issues, commit messages, and comments.

@@ -16,6 +16,7 @@ import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{type BacklinkLocation, Backlinks, Data, Source, Sources}
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/tranquil
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -25,7 +26,7 @@ import lustre/event
 import rsvp
 
 pub opaque type Model {
-  Model(account: Did, local_offset: Duration, place: Place)
+  Model(account: Did, settings: Settings, local_offset: Duration, place: Place)
 }
 
 type Place {
@@ -52,6 +53,7 @@ pub type Profile {
 
 pub fn init(
   session: Session,
+  settings: Settings,
   location: BacklinkLocation,
 ) -> #(Model, Effect(Message)) {
   let account = session.account(session)
@@ -59,9 +61,17 @@ pub fn init(
 
   case location {
     Sources -> #(
-      Model(account:, local_offset:, place: AtSources(links: Loading)),
+      Model(
+        account:,
+        settings:,
+        local_offset:,
+        place: AtSources(links: Loading),
+      ),
       rsvp.send(
-        constellation.links_request(did.to_string(account)),
+        constellation.links_request(
+          settings.constellation,
+          did.to_string(account),
+        ),
         rsvp.expect_json(
           constellation.links_decoder(),
           ConstellationReturnedLinks,
@@ -72,6 +82,7 @@ pub fn init(
     Source(collection:, path:) -> #(
       Model(
         account:,
+        settings:,
         local_offset:,
         place: AtSource(
           collection:,
@@ -82,7 +93,7 @@ pub fn init(
           profiles: dict.new(),
         ),
       ),
-      ask(account, collection, path, None),
+      ask(settings.constellation, account, collection, path, None),
     )
   }
 }
@@ -114,7 +125,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         records: [],
         next: Some(after),
       )))
-    -> #(model, ask(model.account, collection, path, Some(after)))
+    -> #(
+      model,
+      ask(
+        model.settings.constellation,
+        model.account,
+        collection,
+        path,
+        Some(after),
+      ),
+    )
 
     AtSource(records:, profiles:, ..) as place,
       ConstellationReturnedRecords(result: Ok(page))
@@ -141,7 +161,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
           [] -> effect.none()
           [_, ..] ->
             rsvp.send(
-              profiles_request(unknown),
+              profiles_request(model.settings.appview, unknown),
               rsvp.expect_json(profiles_decoder(), AppViewReturnedProfiles),
             )
         },
@@ -165,7 +185,13 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     AtSource(collection:, path:, ..) as place, UserClickedMore(after:) -> #(
       Model(..model, place: AtSource(..place, more: LoadingMore)),
-      ask(model.account, collection, path, Some(after)),
+      ask(
+        model.settings.constellation,
+        model.account,
+        collection,
+        path,
+        Some(after),
+      ),
     )
 
     AtSource(profiles:, ..) as place, AppViewReturnedProfiles(result: Ok(found))
@@ -192,6 +218,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 }
 
 fn ask(
+  constellation: Request(String),
   account: Did,
   collection: String,
   path: String,
@@ -199,6 +226,7 @@ fn ask(
 ) -> Effect(Message) {
   rsvp.send(
     constellation.linking_request(
+      constellation,
       did.to_string(account),
       collection,
       path,
@@ -211,9 +239,11 @@ fn ask(
   )
 }
 
-pub fn profiles_request(accounts: List(Did)) -> Request(String) {
-  request.new()
-  |> request.set_host("public.api.bsky.app")
+pub fn profiles_request(
+  appview: Request(String),
+  accounts: List(Did),
+) -> Request(String) {
+  appview
   |> request.set_path("/xrpc/app.bsky.actor.getProfiles")
   |> request.set_query(
     list.map(accounts, fn(account) { #("actors", did.to_string(account)) }),

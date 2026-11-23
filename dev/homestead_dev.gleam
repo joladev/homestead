@@ -1,8 +1,9 @@
-import gleam/uri
+import gleam/http/request
 import homestead
+import homestead/setting.{Settings}
 
 pub fn main() -> Nil {
-  let assert Ok(directory) = uri.parse("http://localhost:2582")
+  let assert Ok(directory) = request.to("http://localhost:2582")
 
-  homestead.start(directory)
+  homestead.start(with: fn(settings) { Settings(..settings, directory:) })
 }

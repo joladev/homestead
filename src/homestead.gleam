@@ -1,4 +1,7 @@
 import at/did.{type Did}
+import gleam/function
+import gleam/http/request
+import gleam/javascript/promise
 import gleam/option.{None, Some}
 import gleam/uri.{type Uri, Uri}
 import homestead/about
@@ -6,6 +9,7 @@ import homestead/browser
 import homestead/dashboard
 import homestead/route.{type Route, Overview}
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/sign_in
 import homestead/sign_up
 import lustre
@@ -15,37 +19,64 @@ import lustre/element.{type Element}
 import lustre/element/html
 import modem
 
-const public_directory =
-  Uri(
-    scheme: Some("https"),
-    userinfo: None,
-    host: Some("plc.directory"),
-    port: None,
-    path: "",
-    query: None,
-    fragment: None,
-  )
-
 pub fn main() -> Nil {
-  start(public_directory)
+  start(with: function.identity)
 }
 
-pub fn start(directory: Uri) -> Nil {
+pub fn start(with adjust: fn(Settings) -> Settings) -> Nil {
   let assert Ok(location) = modem.initial_uri()
-  session.configure(session.client(location), directory)
 
-  let app = lustre.application(init, update, view)
-  let assert Ok(_) = lustre.start(app, "#app", Start(directory:, location:))
+  promise.map(setting.load(location), fn(settings) {
+    case settings {
+      Ok(settings) -> run(adjust(settings), location)
+      Error(Nil) -> report_unreadable_settings()
+    }
+  })
 
   Nil
 }
 
+fn run(settings: Settings, location: Uri) -> Nil {
+  session.configure(
+    session.client(location),
+    request.to_uri(settings.directory),
+  )
+
+  let app = lustre.application(init, update, view)
+  let assert Ok(_) = lustre.start(app, "#app", Start(settings:, location:))
+
+  Nil
+}
+
+fn report_unreadable_settings() -> Nil {
+  let assert Ok(_) =
+    lustre.start(lustre.element(view_unreadable_settings()), "#app", Nil)
+
+  Nil
+}
+
+fn view_unreadable_settings() -> Element(message) {
+  element.fragment([
+    html.header([attribute.class("top-bar")], [
+      html.a([attribute.class("brand"), attribute.href("/")], [
+        html.text("Homestead"),
+      ]),
+    ]),
+    html.main([attribute.class("page")], [
+      html.p([attribute.class("failure")], [
+        html.text("Couldn't load Homestead's settings. "),
+        html.a([attribute.href("")], [html.text("Try again")]),
+      ]),
+    ]),
+  ])
+}
+
 type Start {
-  Start(directory: Uri, location: Uri)
+  Start(settings: Settings, location: Uri)
 }
 
 type Model {
-  Model(directory: Uri, state: State)
+  Model(settings: Settings, state: State)
 }
 
 type State {
@@ -59,7 +90,7 @@ type State {
 }
 
 fn init(start: Start) -> #(Model, Effect(Message)) {
-  let Start(directory:, location:) = start
+  let Start(settings:, location:) = start
 
   let #(state, effect) = case
     location.path == session.callback_path,
@@ -67,14 +98,14 @@ fn init(start: Start) -> #(Model, Effect(Message)) {
   {
     True, Some(answer) -> #(CompletingSignIn, complete_sign_in(answer))
     True, None -> #(
-      SignedOut(new_sign_in(directory) |> sign_in.report_incomplete_sign_in),
+      SignedOut(new_sign_in(settings) |> sign_in.report_incomplete_sign_in),
       show_overview(),
     )
-    False, _ -> enter(directory, location)
+    False, _ -> enter(settings, location)
   }
 
   #(
-    Model(directory:, state:),
+    Model(settings:, state:),
     effect.batch([modem.init(UserNavigatedTo), effect]),
   )
 }
@@ -110,13 +141,13 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | SigningUp(_), UserNavigatedTo(uri:)
     | ReadingAbout, UserNavigatedTo(uri:)
     -> {
-      let #(state, effect) = enter(model.directory, uri)
+      let #(state, effect) = enter(model.settings, uri)
 
       #(Model(..model, state:), effect)
     }
 
     SignedOut(_), UserNavigatedTo(uri:) ->
-      case front_page(model.directory, uri) {
+      case front_page(model.settings, uri) {
         Ok(state) -> #(Model(..model, state:), effect.none())
         Error(Nil) -> #(model, effect.none())
       }
@@ -126,12 +157,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     Restoring(_), BrowserRestoredSession(result: Error(session.NothingStored))
     -> #(
-      Model(..model, state: SignedOut(new_sign_in(model.directory))),
+      Model(..model, state: SignedOut(new_sign_in(model.settings))),
       effect.none(),
     )
 
     Restoring(_), BrowserRestoredSession(result: Error(_)) -> #(
-      Model(..model, state: ended_session(model.directory)),
+      Model(..model, state: ended_session(model.settings)),
       effect.none(),
     )
 
@@ -145,14 +176,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       Model(
         ..model,
         state: SignedOut(
-          new_sign_in(model.directory) |> sign_in.report_incomplete_sign_in,
+          new_sign_in(model.settings) |> sign_in.report_incomplete_sign_in,
         ),
       ),
       show_overview(),
     )
 
     SignedIn(dashboard:), UserNavigatedTo(uri:) ->
-      case front_page(model.directory, uri) {
+      case front_page(model.settings, uri) {
         Ok(state) -> #(Model(..model, state:), effect.none())
         Error(Nil) ->
           open_dashboard(model, dashboard.show(dashboard, route.from_uri(uri)))
@@ -177,7 +208,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     SignedIn(dashboard:), ServerEndedSession(account:) ->
       case dashboard.account(dashboard) == account {
         True -> #(
-          Model(..model, state: ended_session(model.directory)),
+          Model(..model, state: ended_session(model.settings)),
           show_overview(),
         )
         False -> #(model, effect.none())
@@ -230,7 +261,7 @@ fn start_dashboard(
   route: Route,
 ) -> #(Model, Effect(Message)) {
   let #(model, effect) =
-    open_dashboard(model, dashboard.init(session, model.directory, route))
+    open_dashboard(model, dashboard.init(session, model.settings, route))
 
   #(model, effect.batch([watch(session), effect]))
 }
@@ -255,28 +286,28 @@ fn open_dashboard(
   )
 }
 
-fn enter(directory: Uri, location: Uri) -> #(State, Effect(Message)) {
-  case front_page(directory, location) {
+fn enter(settings: Settings, location: Uri) -> #(State, Effect(Message)) {
+  case front_page(settings, location) {
     Ok(state) -> #(state, effect.none())
     Error(Nil) -> #(Restoring(location:), restore_session())
   }
 }
 
-fn front_page(directory: Uri, location: Uri) -> Result(State, Nil) {
+fn front_page(settings: Settings, location: Uri) -> Result(State, Nil) {
   case location.path {
     path if path == about.path -> Ok(ReadingAbout)
-    path if path == sign_in.path -> Ok(AddingAccount(new_sign_in(directory)))
+    path if path == sign_in.path -> Ok(AddingAccount(new_sign_in(settings)))
     "/sign-up" -> Ok(SigningUp(sign_up.init()))
     _ -> Error(Nil)
   }
 }
 
-fn new_sign_in(directory: Uri) -> sign_in.Model {
-  sign_in.init(directory, session.stored_accounts())
+fn new_sign_in(settings: Settings) -> sign_in.Model {
+  sign_in.init(settings, session.stored_accounts())
 }
 
-fn ended_session(directory: Uri) -> State {
-  SignedOut(new_sign_in(directory) |> sign_in.report_ended_session)
+fn ended_session(settings: Settings) -> State {
+  SignedOut(new_sign_in(settings) |> sign_in.report_ended_session)
 }
 
 fn update_sign_in(

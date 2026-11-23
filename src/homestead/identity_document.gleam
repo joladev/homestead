@@ -9,7 +9,7 @@ import gleam/result
 import gleam/string
 import gleam/time/calendar
 import gleam/time/duration.{type Duration}
-import gleam/uri.{type Uri}
+import gleam/uri
 import homestead/browser
 import homestead/date
 import homestead/identity
@@ -19,6 +19,7 @@ import homestead/json_view
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -59,10 +60,10 @@ type Copied {
   CopyFailed
 }
 
-pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
+pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
   let account = session.account(session)
   let #(history, load_history) = case
-    identity.history_request(directory, account)
+    identity.history_request(settings.directory, account)
   {
     Ok(request) -> #(
       Recorded(log: Loading),
@@ -92,7 +93,7 @@ pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
     ),
     effect.batch([
       rsvp.send(
-        identity.document_request(directory, account),
+        identity.document_request(settings.directory, account),
         rsvp.expect_ok_response(fn(response) {
           DirectoryReturnedDocument(
             result.replace_error(response, tranquil.Unreachable)

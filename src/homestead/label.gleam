@@ -21,6 +21,7 @@ import homestead/identity
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -35,7 +36,7 @@ const labeler_patience_milliseconds = 2500
 pub opaque type Model {
   Model(
     account: Did,
-    directory: Uri,
+    settings: Settings,
     local_offset: Duration,
     opened: Timestamp,
     relay: Relay,
@@ -63,7 +64,7 @@ type Found {
   Found(events: List(Event), unreadable: Int)
 }
 
-pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
+pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
   let account = session.account(session)
   let opened = timestamp.system_time()
   let subjects = subjects(account)
@@ -71,7 +72,7 @@ pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
   #(
     Model(
       account:,
-      directory:,
+      settings:,
       local_offset: calendar.local_offset(),
       opened:,
       relay: Asking(subjects: list.length(subjects)),
@@ -79,7 +80,7 @@ pub fn init(session: Session, directory: Uri) -> #(Model, Effect(Message)) {
     ),
     effect.batch([
       browser.after(relay_patience_milliseconds, RelayTookTooLong(opened)),
-      ..list.map(subjects, ask_relay(_, None))
+      ..list.map(subjects, ask_relay(settings.label_relay, _, None))
     ]),
   )
 }
@@ -109,7 +110,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       case page.next, model.relay {
         Some(after), _ -> #(
           model,
-          effect.batch([meeting, ask_relay(subject, Some(after))]),
+          effect.batch([
+            meeting,
+            ask_relay(model.settings.label_relay, subject, Some(after)),
+          ]),
         )
         None, Asking(subjects: 1) -> #(Model(..model, relay: Answered), meeting)
         None, Asking(subjects:) -> #(
@@ -287,7 +291,7 @@ fn meet_labelers(
       effect.batch([
         ask_appview(model, unknown, None),
         rsvp.send(
-          services_request(unknown),
+          services_request(model.settings.appview, unknown),
           rsvp.expect_ok_response(fn(response) {
             AppViewReturnedServices(
               result.replace_error(response, tranquil.Unreachable)
@@ -304,7 +308,7 @@ fn meet_labelers(
         ),
         ..list.map(unknown, fn(labeler) {
           rsvp.send(
-            identity.document_request(model.directory, labeler),
+            identity.document_request(model.settings.directory, labeler),
             rsvp.expect_ok_response(fn(response) {
               DirectoryReturnedLabeler(
                 labeler,
@@ -336,9 +340,13 @@ fn fail(model: Model, labeler: Did, problem: Problem) -> Model {
   change(model, labeler, fn(known) { Labeler(..known, own: Failed(problem:)) })
 }
 
-fn ask_relay(subject: String, after: Option(String)) -> Effect(Message) {
+fn ask_relay(
+  relay: Request(String),
+  subject: String,
+  after: Option(String),
+) -> Effect(Message) {
   rsvp.send(
-    relay_request(subject, after),
+    relay_request(relay, subject, after),
     expect_labels(RelayReturnedLabelers(subject, _)),
   )
 }
@@ -349,7 +357,7 @@ fn ask_appview(
   after: Option(String),
 ) -> Effect(Message) {
   rsvp.send(
-    appview_request(model.account, labelers, after),
+    appview_request(model.settings.appview, model.account, labelers, after),
     expect_labels(AppViewReturnedLabels(labelers, _)),
   )
 }
@@ -537,10 +545,6 @@ fn name(model: Model, labeler: Did) -> String {
   }
 }
 
-const relay = "https://labelers.firehose.stream"
-
-const appview = "https://public.api.bsky.app"
-
 const page_size = 250
 
 pub type Event {
@@ -584,22 +588,20 @@ pub fn subjects(account: Did) -> List(String) {
 }
 
 pub fn relay_request(
+  relay: Request(String),
   subject: String,
   after: Option(String),
 ) -> Request(String) {
-  let assert Ok(request) = request.to(relay)
-
-  query(request, [subject], [], after)
+  query(relay, [subject], [], after)
 }
 
 pub fn appview_request(
+  appview: Request(String),
   account: Did,
   labelers: List(Did),
   after: Option(String),
 ) -> Request(String) {
-  let assert Ok(request) = request.to(appview)
-
-  query(request, subjects(account), labelers, after)
+  query(appview, subjects(account), labelers, after)
 }
 
 pub fn labeler_request(
@@ -733,10 +735,11 @@ fn periods(events: List(Event), now: Timestamp) -> List(Label) {
   }
 }
 
-pub fn services_request(labelers: List(Did)) -> Request(String) {
-  let assert Ok(request) = request.to(appview)
-
-  request
+pub fn services_request(
+  appview: Request(String),
+  labelers: List(Did),
+) -> Request(String) {
+  appview
   |> request.set_path("/xrpc/app.bsky.labeler.getServices")
   |> request.set_query([
     #("detailed", "true"),

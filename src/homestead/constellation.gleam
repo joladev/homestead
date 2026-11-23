@@ -18,9 +18,11 @@ pub type Page {
   Page(records: List(Linking), next: Option(String))
 }
 
-pub fn links_request(target: String) -> Request(String) {
-  request.new()
-  |> request.set_host("constellation.microcosm.blue")
+pub fn links_request(
+  constellation: Request(String),
+  target: String,
+) -> Request(String) {
+  constellation
   |> request.set_path("/links/all")
   |> request.set_query([#("target", target)])
   |> request.set_header("accept", "application/json")
@@ -54,6 +56,7 @@ pub fn links_decoder() -> Decoder(List(Link)) {
 }
 
 pub fn linking_request(
+  constellation: Request(String),
   target: String,
   collection: String,
   path: String,
@@ -66,8 +69,7 @@ pub fn linking_request(
     #("limit", "25"),
   ]
 
-  request.new()
-  |> request.set_host("constellation.microcosm.blue")
+  constellation
   |> request.set_path("/links")
   |> request.set_query(case after {
     Some(cursor) -> [#("cursor", cursor), ..page]

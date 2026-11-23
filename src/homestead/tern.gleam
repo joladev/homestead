@@ -13,9 +13,11 @@ pub type Actor {
   )
 }
 
-pub fn search_request(query: String) -> Request(String) {
-  request.new()
-  |> request.set_host("typeahead.cove.town")
+pub fn search_request(
+  typeahead: Request(String),
+  query: String,
+) -> Request(String) {
+  typeahead
   |> request.set_path("/xrpc/town.cove.actor.searchActorsTypeahead")
   |> request.set_query([#("q", query), #("limit", "6")])
 }

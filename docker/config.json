@@ -1,1 +1,9 @@
-{ "dns": "{{env "HOMESTEAD_DNS"}}" }
+{
+  "plc": "{{env "HOMESTEAD_PLC"}}",
+  "typeahead": "{{env "HOMESTEAD_TYPEAHEAD"}}",
+  "slingshot": "{{env "HOMESTEAD_SLINGSHOT"}}",
+  "constellation": "{{env "HOMESTEAD_CONSTELLATION"}}",
+  "appview": "{{env "HOMESTEAD_APPVIEW"}}",
+  "labelRelay": "{{env "HOMESTEAD_LABEL_RELAY"}}",
+  "dns": "{{env "HOMESTEAD_DNS"}}"
+}

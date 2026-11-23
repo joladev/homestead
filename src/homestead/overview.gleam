@@ -13,6 +13,7 @@ import homestead/route.{
   SignInMethods,
 }
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/slingshot
 import homestead/tranquil.{
   type ActiveSession, type Authenticator, type Passkey, type Problem,
@@ -46,7 +47,7 @@ type Row {
   Row(label: String, tone: Tone, facts: Remote(String), link: String, to: Route)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
   let model =
     Model(
       display_name: Loading,
@@ -76,7 +77,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       ),
       tranquil.load(session, tranquil.sessions(), ServerReturnedSessions),
       rsvp.send(
-        slingshot.identity_request(session.account(session)),
+        slingshot.identity_request(settings.slingshot, session.account(session)),
         rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
       ),
     ]),

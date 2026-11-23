@@ -10,13 +10,19 @@ case "$HOMESTEAD_HOST" in
     ;;
 esac
 
-export HOMESTEAD_DNS="${HOMESTEAD_DNS:-https://dns10.quad9.net/dns-query}"
+for name in HOMESTEAD_PLC HOMESTEAD_TYPEAHEAD HOMESTEAD_SLINGSHOT HOMESTEAD_CONSTELLATION HOMESTEAD_APPVIEW HOMESTEAD_LABEL_RELAY HOMESTEAD_DNS; do
+  eval "address=\${$name:-}"
 
-case "${HOMESTEAD_DNS#https://}" in
-  "$HOMESTEAD_DNS" | "" | *[!A-Za-z0-9.:/_~-]*)
-    echo "HOMESTEAD_DNS must be an https address without a query, for example https://dns10.quad9.net/dns-query: $HOMESTEAD_DNS" >&2
-    exit 1
-    ;;
-esac
+  case "$address" in
+    "") continue ;;
+  esac
+
+  case "${address#https://}" in
+    "$address" | "" | *[!A-Za-z0-9.:/_~-]*)
+      echo "$name must be an https address without a query: $address" >&2
+      exit 1
+      ;;
+  esac
+done
 
 exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile

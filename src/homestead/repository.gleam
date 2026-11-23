@@ -25,6 +25,7 @@ import homestead/route.{
   Repository,
 }
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/tranquil.{type Problem, type RecordPage, type RepoRecord}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -107,6 +108,7 @@ type Creation {
 
 pub fn init(
   session: Session,
+  settings: Settings,
   location: RepositoryLocation,
 ) -> #(Model, Effect(Message)) {
   let account = session.account(session)
@@ -158,12 +160,13 @@ pub fn init(
         load_record(session, collection, key),
         rsvp.send(
           constellation.links_request(
+            settings.constellation,
             "at://"
-            <> did.to_string(session.account(session))
-            <> "/"
-            <> collection
-            <> "/"
-            <> key,
+              <> did.to_string(session.account(session))
+              <> "/"
+              <> collection
+              <> "/"
+              <> key,
           ),
           rsvp.expect_json(
             constellation.links_decoder(),

@@ -5,9 +5,11 @@ import gleam/http/request.{type Request}
 import gleam/option.{type Option, None, Some}
 import rsvp
 
-pub fn resolve_request(handle: Handle) -> Request(String) {
-  request.new()
-  |> request.set_host("slingshot.cove.town")
+pub fn resolve_request(
+  slingshot: Request(String),
+  handle: Handle,
+) -> Request(String) {
+  slingshot
   |> request.set_path("/xrpc/com.atproto.identity.resolveHandle")
   |> request.set_query([#("handle", handle.to_string(handle))])
 }
@@ -16,9 +18,11 @@ pub fn resolve_decoder() -> Decoder(Did) {
   decode.at(["did"], did.decoder())
 }
 
-pub fn identity_request(account: Did) -> Request(String) {
-  request.new()
-  |> request.set_host("slingshot.cove.town")
+pub fn identity_request(
+  slingshot: Request(String),
+  account: Did,
+) -> Request(String) {
+  slingshot
   |> request.set_path("/xrpc/blue.microcosm.identity.resolveMiniDoc")
   |> request.set_query([#("identifier", did.to_string(account))])
 }

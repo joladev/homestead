@@ -16,6 +16,7 @@ import homestead/browser
 import homestead/identity
 import homestead/landing
 import homestead/session.{type StoredAccount}
+import homestead/setting.{type Settings}
 import homestead/slingshot
 import homestead/tern.{type Actor}
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
@@ -31,7 +32,7 @@ pub const path = "/sign-in"
 
 pub opaque type Model {
   Model(
-    directory: Uri,
+    settings: Settings,
     accounts: List(StoredAccount),
     removing: List(Did),
     chosen_account: Option(Did),
@@ -65,9 +66,9 @@ type Problem {
   SessionEnded
 }
 
-pub fn init(directory: Uri, accounts: List(StoredAccount)) -> Model {
+pub fn init(settings: Settings, accounts: List(StoredAccount)) -> Model {
   Model(
-    directory:,
+    settings:,
     accounts:,
     removing: [],
     chosen_account: None,
@@ -161,7 +162,7 @@ fn update_while_idle(
     UserPausedTyping(query:) -> {
       use <- bool.guard(!is_being_typed(model, query), #(model, effect.none()))
 
-      #(model, search(query))
+      #(model, search(model.settings.typeahead, query))
     }
 
     TernReturnedActors(query:, result: found) -> {
@@ -192,7 +193,7 @@ fn update_while_idle(
         suggestions: Hidden(actors: []),
         lookup: Looking,
       ),
-      fetch_document(model.directory, actor.did),
+      fetch_document(model.settings.directory, actor.did),
     )
 
     UserSubmittedForm(fields:) -> {
@@ -222,14 +223,17 @@ fn update_while_looking(
       }
 
       case actor {
-        Ok(actor) -> #(model, fetch_document(model.directory, actor.did))
-        Error(Nil) -> #(model, ask_slingshot(handle))
+        Ok(actor) -> #(
+          model,
+          fetch_document(model.settings.directory, actor.did),
+        )
+        Error(Nil) -> #(model, ask_slingshot(model.settings.slingshot, handle))
       }
     }
 
     SlingshotReturnedDid(result: Ok(did), ..) -> #(
       model,
-      fetch_document(model.directory, did),
+      fetch_document(model.settings.directory, did),
     )
 
     SlingshotReturnedDid(handle:, result: Error(_)) -> #(
@@ -244,7 +248,7 @@ fn update_while_looking(
       }
 
       case did {
-        Ok(did) -> #(model, fetch_document(model.directory, did))
+        Ok(did) -> #(model, fetch_document(model.settings.directory, did))
         Error(Nil) -> #(
           Model(..model, lookup: Failed(HandleNotResolved)),
           effect.none(),
@@ -385,9 +389,18 @@ fn start_lookup(model: Model, text: String) -> #(Model, Effect(Message)) {
     )
 
   case suggested, did.from_string(identifier), handle.from_string(identifier) {
-    Ok(actor), _, _ -> #(looking, fetch_document(model.directory, actor.did))
-    Error(Nil), Ok(did), _ -> #(looking, fetch_document(model.directory, did))
-    Error(Nil), Error(Nil), Ok(handle) -> #(looking, find_actor(handle))
+    Ok(actor), _, _ -> #(
+      looking,
+      fetch_document(model.settings.directory, actor.did),
+    )
+    Error(Nil), Ok(did), _ -> #(
+      looking,
+      fetch_document(model.settings.directory, did),
+    )
+    Error(Nil), Error(Nil), Ok(handle) -> #(
+      looking,
+      find_actor(model.settings.typeahead, handle),
+    )
     Error(Nil), Error(Nil), Error(Nil) -> #(
       Model(..looking, lookup: Failed(IdentifierNotUnderstood)),
       effect.none(),
@@ -401,23 +414,26 @@ fn pause_before_searching(query: String) -> Effect(Message) {
   browser.after(typing_pause_milliseconds, UserPausedTyping(query))
 }
 
-fn search(query: String) -> Effect(Message) {
+fn search(typeahead: Request(String), query: String) -> Effect(Message) {
   rsvp.send(
-    tern.search_request(query),
+    tern.search_request(typeahead, query),
     rsvp.expect_json(tern.search_decoder(), TernReturnedActors(query, _)),
   )
 }
 
-fn find_actor(handle: Handle) -> Effect(Message) {
+fn find_actor(typeahead: Request(String), handle: Handle) -> Effect(Message) {
   rsvp.send(
-    tern.search_request(handle.to_string(handle)),
+    tern.search_request(typeahead, handle.to_string(handle)),
     rsvp.expect_json(tern.search_decoder(), TernReturnedMatches(handle, _)),
   )
 }
 
-fn ask_slingshot(handle: Handle) -> Effect(Message) {
+fn ask_slingshot(
+  slingshot: Request(String),
+  handle: Handle,
+) -> Effect(Message) {
   rsvp.send(
-    slingshot.resolve_request(handle),
+    slingshot.resolve_request(slingshot, handle),
     rsvp.expect_json(slingshot.resolve_decoder(), SlingshotReturnedDid(
       handle,
       _,
@@ -429,7 +445,7 @@ fn resolve_handle(handle: Handle) -> Effect(Message) {
   rsvp.send(handle.resolve(handle), rsvp.expect_text(HandleHostReturnedDid))
 }
 
-fn fetch_document(directory: Uri, did: Did) -> Effect(Message) {
+fn fetch_document(directory: Request(String), did: Did) -> Effect(Message) {
   rsvp.send(
     identity.document_request(directory, did),
     rsvp.expect_ok_response(DirectoryReturnedDocument(did, _)),

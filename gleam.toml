@@ -5,6 +5,7 @@ licences = ["AGPL-3.0-or-later"]
 
 [dependencies]
 at = { git = "https://tangled.org/hayleigh.dev/at", ref = "cef3259a7bd70c52dbe7ffec484ba180bbd8abbb" }
+gleam_fetch = ">= 1.4.1 and < 2.0.0"
 gleam_http = ">= 4.5.0 and < 5.0.0"
 gleam_javascript = ">= 1.0.1 and < 2.0.0"
 gleam_json = ">= 3.1.0 and < 4.0.0"
@@ -35,6 +36,12 @@ sizes = "32x32"
 rel = "icon"
 href = "/favicon.svg"
 type = "image/svg+xml"
+
+[[tools.lustre.html.links]]
+rel = "preload"
+href = "/config.json"
+as = "fetch"
+crossorigin = "anonymous"
 
 [[tools.lustre.html.stylesheets]]
 href = "/homestead.css"

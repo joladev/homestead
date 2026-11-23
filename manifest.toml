@@ -58,6 +58,7 @@ packages = [
 
 [requirements]
 at = { git = "https://tangled.org/hayleigh.dev/at", ref = "cef3259a7bd70c52dbe7ffec484ba180bbd8abbb" }
+gleam_fetch = { version = ">= 1.4.1 and < 2.0.0" }
 gleam_http = { version = ">= 4.5.0 and < 5.0.0" }
 gleam_javascript = { version = ">= 1.0.1 and < 2.0.0" }
 gleam_json = { version = ">= 3.1.0 and < 4.0.0" }

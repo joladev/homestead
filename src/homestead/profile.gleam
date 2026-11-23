@@ -1,7 +1,6 @@
 import at/did.{type Did}
 import at/handle.{type Handle}
 import gleam/bit_array
-import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/int
@@ -9,13 +8,13 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import gleam/uri
 import homestead/browser
 import homestead/layout
 import homestead/remote.{
   type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
 }
 import homestead/session.{type Session}
+import homestead/setting.{type Settings}
 import homestead/slingshot
 import homestead/tranquil.{
   type Account, type Channel, type ContactPreferences, type Problem, type Server,
@@ -32,6 +31,7 @@ const code_channel = tranquil.Signal
 pub opaque type Model {
   Model(
     session: Session,
+    settings: Settings,
     account: Remote(Account),
     server: Remote(Server),
     handle: HandleForm,
@@ -102,10 +102,11 @@ type ContactForm {
   )
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
+      settings:,
       account: Loading,
       server: Loading,
       handle: HandleForm(
@@ -145,10 +146,6 @@ pub opaque type Message {
   ServerChangedHandle(result: Result(Nil, Problem))
   UserClickedCheckHandle
   SlingshotReturnedHandle(result: Result(Handle, rsvp.Error(String)))
-  HomesteadReturnedResolver(
-    handle: Handle,
-    result: Result(Request(String), rsvp.Error(String)),
-  )
   DnsReturnedRecords(result: Result(Response(BitArray), rsvp.Error(BitArray)))
   HandleHostReturnedFile(result: Result(Response(String), rsvp.Error(String)))
   UserClickedCopy(text: String, copied: Copied)
@@ -180,13 +177,14 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     ServerReturnedAccount(result:) -> {
       let account = remote.from_result(result)
-      let #(check, checking) = check_handle(session, account)
+      let #(check, checking) = check_handle(session, model.settings, account)
 
       #(Model(..model, account:, check:), checking)
     }
 
     UserClickedCheckHandle -> {
-      let #(check, checking) = check_handle(session, model.account)
+      let #(check, checking) =
+        check_handle(session, model.settings, model.account)
 
       #(Model(..model, check:), checking)
     }
@@ -200,22 +198,6 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
             |> result.replace_error(tranquil.Unreachable)
             |> remote.from_result,
         ),
-      ),
-      effect.none(),
-    )
-
-    HomesteadReturnedResolver(handle:, result: Ok(resolver)) -> #(
-      model,
-      rsvp.send_bits(
-        record_request(resolver, handle),
-        rsvp.expect_ok_response(DnsReturnedRecords),
-      ),
-    )
-
-    HomesteadReturnedResolver(result: Error(_), ..) -> #(
-      Model(
-        ..model,
-        check: Check(..model.check, record: Failed(tranquil.Unreachable)),
       ),
       effect.none(),
     )
@@ -594,6 +576,7 @@ fn full_handle(form: HandleForm) -> String {
 
 fn check_handle(
   session: Session,
+  settings: Settings,
   account: Remote(Account),
 ) -> #(Check, Effect(Message)) {
   case account {
@@ -601,15 +584,15 @@ fn check_handle(
       Check(verified: Loading, record: Loading, file: Loading),
       effect.batch([
         rsvp.send(
-          slingshot.identity_request(session.account(session)),
+          slingshot.identity_request(
+            settings.slingshot,
+            session.account(session),
+          ),
           rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
         ),
-        rsvp.get(
-          "/config.json",
-          rsvp.expect_json(resolver_decoder(), HomesteadReturnedResolver(
-            handle,
-            _,
-          )),
+        rsvp.send_bits(
+          record_request(settings.dns, handle),
+          rsvp.expect_ok_response(DnsReturnedRecords),
         ),
         rsvp.send(
           handle.resolve(handle),
@@ -1264,15 +1247,6 @@ pub type Finding {
   Malformed
   Absent
   Unreadable
-}
-
-fn resolver_decoder() -> Decoder(Request(String)) {
-  use address <- decode.field("dns", decode.string)
-
-  case uri.parse(address) |> result.try(request.from_uri) {
-    Ok(resolver) -> decode.success(resolver)
-    Error(Nil) -> decode.failure(request.new(), "Resolver")
-  }
 }
 
 pub fn record_request(

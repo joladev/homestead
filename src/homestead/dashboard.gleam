@@ -5,7 +5,6 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/uri.{type Uri}
 import homestead/admin
 import homestead/app_password
 import homestead/backlink
@@ -27,6 +26,7 @@ import homestead/route.{
 }
 import homestead/session.{type Departure, type Session, type StoredAccount}
 import homestead/sessions
+import homestead/setting.{type Settings}
 import homestead/sign_in
 import homestead/sign_in_method
 import homestead/tranquil.{type Problem}
@@ -41,7 +41,7 @@ import modem
 pub opaque type Model {
   Model(
     session: Session,
-    directory: Uri,
+    settings: Settings,
     route: Route,
     page: Page,
     account: Remote(tranquil.Account),
@@ -73,15 +73,15 @@ type Page {
 
 pub fn init(
   session: Session,
-  directory: Uri,
+  settings: Settings,
   route: Route,
 ) -> #(Model, Effect(Message)) {
-  let #(page, effect) = open(session, directory, route)
+  let #(page, effect) = open(session, settings, route)
 
   #(
     Model(
       session:,
-      directory:,
+      settings:,
       route:,
       page:,
       account: Loading,
@@ -101,7 +101,7 @@ pub fn init(
 
 pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
   use <- bool.guard(is_closed(route, model.account), #(model, show_overview()))
-  let #(page, effect) = open(model.session, model.directory, route)
+  let #(page, effect) = open(model.session, model.settings, route)
 
   #(Model(..model, route:, page:, is_menu_open: False), effect)
 }
@@ -119,12 +119,12 @@ fn show_overview() -> Effect(Message) {
 
 fn open(
   session: Session,
-  directory: Uri,
+  settings: Settings,
   route: Route,
 ) -> #(Page, Effect(Message)) {
   case route {
     Overview -> {
-      let #(page, effect) = overview.init(session)
+      let #(page, effect) = overview.init(session, settings)
 
       #(OverviewPage(page), effect.map(effect, OverviewProducedMessage))
     }
@@ -151,7 +151,7 @@ fn open(
     }
 
     Account(route.Profile) -> {
-      let #(page, effect) = profile.init(session)
+      let #(page, effect) = profile.init(session, settings)
 
       #(ProfilePage(page), effect.map(effect, ProfileProducedMessage))
     }
@@ -190,19 +190,19 @@ fn open(
     }
 
     Data(route.Labels) -> {
-      let #(page, effect) = label.init(session, directory)
+      let #(page, effect) = label.init(session, settings)
 
       #(LabelsPage(page), effect.map(effect, LabelsProducedMessage))
     }
 
     Data(route.Backlinks(location:)) -> {
-      let #(page, effect) = backlink.init(session, location)
+      let #(page, effect) = backlink.init(session, settings, location)
 
       #(BacklinkPage(page), effect.map(effect, BacklinkProducedMessage))
     }
 
     Data(route.Repository(location:)) -> {
-      let #(page, effect) = repository.init(session, location)
+      let #(page, effect) = repository.init(session, settings, location)
 
       #(RepositoryPage(page), effect.map(effect, RepositoryProducedMessage))
     }
@@ -214,7 +214,7 @@ fn open(
     }
 
     Advanced(route.IdentityDocument) -> {
-      let #(page, effect) = identity_document.init(session, directory)
+      let #(page, effect) = identity_document.init(session, settings)
 
       #(
         IdentityDocumentPage(page),
