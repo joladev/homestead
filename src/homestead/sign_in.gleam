@@ -16,6 +16,7 @@ import homestead/browser
 import homestead/identity
 import homestead/landing
 import homestead/session.{type StoredAccount}
+import homestead/slingshot
 import homestead/tern.{type Actor}
 import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
 import lustre/attribute.{type Attribute}
@@ -102,6 +103,11 @@ pub opaque type Message {
     query: String,
     result: Result(List(Actor), rsvp.Error(String)),
   )
+  TernReturnedMatches(
+    handle: Handle,
+    result: Result(List(Actor), rsvp.Error(String)),
+  )
+  SlingshotReturnedDid(handle: Handle, result: Result(Did, rsvp.Error(String)))
   HandleHostReturnedDid(result: Result(String, rsvp.Error(String)))
   DirectoryReturnedDocument(
     did: Did,
@@ -195,7 +201,9 @@ fn update_while_idle(
       start_lookup(model, identifier)
     }
 
-    HandleHostReturnedDid(..)
+    TernReturnedMatches(..)
+    | SlingshotReturnedDid(..)
+    | HandleHostReturnedDid(..)
     | DirectoryReturnedDocument(..)
     | ServerReturnedHealth(..)
     | ServerPreparedSignIn(..) -> #(model, effect.none())
@@ -207,6 +215,28 @@ fn update_while_looking(
   message: Message,
 ) -> #(Model, Effect(Message)) {
   case message {
+    TernReturnedMatches(handle:, result: found) -> {
+      let actor = {
+        use actors <- result.try(result.replace_error(found, Nil))
+        list.find(actors, fn(actor) { actor.handle == handle.to_string(handle) })
+      }
+
+      case actor {
+        Ok(actor) -> #(model, fetch_document(model.directory, actor.did))
+        Error(Nil) -> #(model, ask_slingshot(handle))
+      }
+    }
+
+    SlingshotReturnedDid(result: Ok(did), ..) -> #(
+      model,
+      fetch_document(model.directory, did),
+    )
+
+    SlingshotReturnedDid(handle:, result: Error(_)) -> #(
+      model,
+      resolve_handle(handle),
+    )
+
     HandleHostReturnedDid(result: resolved) -> {
       let did = {
         use body <- result.try(result.replace_error(resolved, Nil))
@@ -357,7 +387,7 @@ fn start_lookup(model: Model, text: String) -> #(Model, Effect(Message)) {
   case suggested, did.from_string(identifier), handle.from_string(identifier) {
     Ok(actor), _, _ -> #(looking, fetch_document(model.directory, actor.did))
     Error(Nil), Ok(did), _ -> #(looking, fetch_document(model.directory, did))
-    Error(Nil), Error(Nil), Ok(handle) -> #(looking, resolve_handle(handle))
+    Error(Nil), Error(Nil), Ok(handle) -> #(looking, find_actor(handle))
     Error(Nil), Error(Nil), Error(Nil) -> #(
       Model(..looking, lookup: Failed(IdentifierNotUnderstood)),
       effect.none(),
@@ -375,6 +405,23 @@ fn search(query: String) -> Effect(Message) {
   rsvp.send(
     tern.search_request(query),
     rsvp.expect_json(tern.search_decoder(), TernReturnedActors(query, _)),
+  )
+}
+
+fn find_actor(handle: Handle) -> Effect(Message) {
+  rsvp.send(
+    tern.search_request(handle.to_string(handle)),
+    rsvp.expect_json(tern.search_decoder(), TernReturnedMatches(handle, _)),
+  )
+}
+
+fn ask_slingshot(handle: Handle) -> Effect(Message) {
+  rsvp.send(
+    slingshot.resolve_request(handle),
+    rsvp.expect_json(slingshot.resolve_decoder(), SlingshotReturnedDid(
+      handle,
+      _,
+    )),
   )
 }
 
