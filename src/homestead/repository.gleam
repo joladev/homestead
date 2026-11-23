@@ -1,6 +1,8 @@
+import at/did
 import at/tid
 import gleam/dict
 import gleam/dynamic/decode
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -12,6 +14,7 @@ import gleam/time/timestamp.{type Timestamp}
 import gleam/uri
 import homestead/browser
 import homestead/confirmation
+import homestead/constellation.{type Link}
 import homestead/date
 import homestead/json_view
 import homestead/layout
@@ -28,6 +31,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import modem
+import rsvp
 
 const delete_button_id = "delete-record"
 
@@ -64,6 +68,7 @@ type Place {
     text: String,
     action: Action,
     copied: Copied,
+    links: Remote(List(Link)),
   )
   AtNewRecord(collection: String, key: String, text: String, creation: Creation)
 }
@@ -145,9 +150,26 @@ pub fn init(
           text: "",
           action: Reading,
           copied: NothingCopied,
+          links: Loading,
         ),
       ),
-      load_record(session, collection, key),
+      effect.batch([
+        load_record(session, collection, key),
+        rsvp.send(
+          constellation.links_request(
+            "at://"
+            <> did.to_string(session.account(session))
+            <> "/"
+            <> collection
+            <> "/"
+            <> key,
+          ),
+          rsvp.expect_json(
+            constellation.links_decoder(),
+            ConstellationReturnedLinks,
+          ),
+        ),
+      ]),
     )
 
     NewRecord(collection:) -> #(
@@ -172,6 +194,7 @@ pub opaque type Message {
   UserClickedMore(after: String)
   ServerReturnedMoreRecords(result: Result(RecordPage, Problem))
   ServerReturnedRecord(result: Result(RepoRecord, Problem))
+  ConstellationReturnedLinks(result: Result(List(Link), rsvp.Error(String)))
   UserEditedRecord(text: String)
   UserSubmittedRecord
   ServerSavedRecord(result: Result(Nil, Problem))
@@ -256,19 +279,26 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
 
-    AtRecord(collection:, key:, action:, copied:, ..),
-      ServerReturnedRecord(result:)
-    -> #(
+    AtRecord(..) as place, ServerReturnedRecord(result:) -> #(
       Model(
         ..model,
         place: AtRecord(
-          collection:,
-          key:,
+          ..place,
           record: remote.from_result(result),
           text: result.map(result, fn(record) { record.json })
             |> result.unwrap(""),
-          action:,
-          copied:,
+        ),
+      ),
+      effect.none(),
+    )
+
+    AtRecord(..) as place, ConstellationReturnedLinks(result: returned) -> #(
+      Model(
+        ..model,
+        place: AtRecord(
+          ..place,
+          links: result.replace_error(returned, tranquil.Unreachable)
+            |> remote.from_result,
         ),
       ),
       effect.none(),
@@ -490,7 +520,7 @@ pub fn view(model: Model) -> Element(Message) {
           [view_records(collection, records, next, more, model.local_offset)],
         )
 
-      AtRecord(collection:, key:, record:, text:, action:, copied:) ->
+      AtRecord(collection:, key:, record:, text:, action:, copied:, links:) ->
         layout.path_section_with_actions(
           [top, link(Records(collection:), collection), html.text(key)],
           case record, action {
@@ -526,7 +556,17 @@ pub fn view(model: Model) -> Element(Message) {
             | Loaded(_), SaveRefused(_)
             -> []
           },
-          [view_record(record, key, text, action, copied, model.local_offset)],
+          [
+            view_record(
+              record,
+              links,
+              key,
+              text,
+              action,
+              copied,
+              model.local_offset,
+            ),
+          ],
         )
 
       AtNewRecord(collection:, key:, text:, creation:) ->
@@ -686,8 +726,33 @@ fn view_records(
   )
 }
 
+fn view_links(links: List(Link)) -> Element(message) {
+  case links {
+    [] -> layout.dim("nothing")
+    [_, ..] ->
+      html.span(
+        [attribute.class("lines links")],
+        list.map(links, fn(link) {
+          let shares_collection =
+            list.count(links, fn(other) { other.collection == link.collection })
+            > 1
+
+          html.span([], [
+            html.text(int.to_string(link.records) <> " "),
+            html.code([attribute.class("long")], [html.text(link.collection)]),
+            case shares_collection {
+              True -> layout.dim(" " <> link.path)
+              False -> element.none()
+            },
+          ])
+        }),
+      )
+  }
+}
+
 fn view_record(
   record: Remote(RepoRecord),
+  links: Remote(List(Link)),
   key: String,
   text: String,
   action: Action,
@@ -701,7 +766,17 @@ fn view_record(
         ConfirmingDelete ->
           confirmation.view(
             question: "Delete?",
-            consequence: "The record is removed for good.",
+            consequence: case links {
+              Loaded(value: [_, ..] as links) ->
+                "The record is removed for good. "
+                <> case int.sum(list.map(links, fn(link) { link.records })) {
+                  1 -> "1 record elsewhere links to it."
+                  count ->
+                    int.to_string(count) <> " records elsewhere link to it."
+                }
+              Loaded(value: []) | Loading | Failed(_) ->
+                "The record is removed for good."
+            },
             accept: "Delete record",
             on_cancel: UserCancelledDelete,
             on_accept: UserConfirmedDelete,
@@ -728,6 +803,16 @@ fn view_record(
       },
       view_copyable("Address", record.address, CopiedAddress, copied),
       view_copyable("Content ID", record.content_id, CopiedContentId, copied),
+      {
+        use links <- layout.awaited_row(name: "Linked from", of: links)
+
+        layout.row(
+          tone: layout.Plain,
+          name: "Linked from",
+          details: [view_links(links)],
+          actions: [],
+        )
+      },
       case action {
         Reading | ConfirmingDelete | Deleting ->
           layout.full_row([json_view.view(record.json)])
