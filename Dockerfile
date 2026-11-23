@@ -20,6 +20,7 @@ COPY docker/Caddyfile /etc/caddy/Caddyfile
 COPY docker/start.sh /usr/local/bin/start
 COPY --from=build /app/dist /srv
 COPY docker/oauth-client-metadata.json /srv/oauth-client-metadata.json
+COPY docker/config.json /srv/config.json
 
 EXPOSE 8080
 

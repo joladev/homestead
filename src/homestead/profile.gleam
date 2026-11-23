@@ -1,13 +1,15 @@
 import at/did.{type Did}
 import at/handle.{type Handle}
+import gleam/bit_array
 import gleam/dynamic/decode.{type Decoder}
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
-import gleam/json
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/uri
 import homestead/browser
 import homestead/layout
 import homestead/remote.{
@@ -143,7 +145,11 @@ pub opaque type Message {
   ServerChangedHandle(result: Result(Nil, Problem))
   UserClickedCheckHandle
   SlingshotReturnedHandle(result: Result(Handle, rsvp.Error(String)))
-  DnsReturnedRecords(result: Result(Response(String), rsvp.Error(String)))
+  HomesteadReturnedResolver(
+    handle: Handle,
+    result: Result(Request(String), rsvp.Error(String)),
+  )
+  DnsReturnedRecords(result: Result(Response(BitArray), rsvp.Error(BitArray)))
   HandleHostReturnedFile(result: Result(Response(String), rsvp.Error(String)))
   UserClickedCopy(text: String, copied: Copied)
   BrowserCopiedText(copied: Copied, result: Result(Nil, Nil))
@@ -194,6 +200,22 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
             |> result.replace_error(tranquil.Unreachable)
             |> remote.from_result,
         ),
+      ),
+      effect.none(),
+    )
+
+    HomesteadReturnedResolver(handle:, result: Ok(resolver)) -> #(
+      model,
+      rsvp.send_bits(
+        record_request(resolver, handle),
+        rsvp.expect_ok_response(DnsReturnedRecords),
+      ),
+    )
+
+    HomesteadReturnedResolver(result: Error(_), ..) -> #(
+      Model(
+        ..model,
+        check: Check(..model.check, record: Failed(tranquil.Unreachable)),
       ),
       effect.none(),
     )
@@ -582,9 +604,12 @@ fn check_handle(
           slingshot.identity_request(session.account(session)),
           rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
         ),
-        rsvp.send(
-          record_request(handle),
-          rsvp.expect_ok_response(DnsReturnedRecords),
+        rsvp.get(
+          "/config.json",
+          rsvp.expect_json(resolver_decoder(), HomesteadReturnedResolver(
+            handle,
+            _,
+          )),
         ),
         rsvp.send(
           handle.resolve(handle),
@@ -1241,47 +1266,109 @@ pub type Finding {
   Unreadable
 }
 
-pub fn record_request(handle: Handle) -> Request(String) {
-  request.new()
-  |> request.set_host("cloudflare-dns.com")
-  |> request.set_path("/dns-query")
-  |> request.set_query([
-    #("name", "_atproto." <> handle.to_string(handle)),
-    #("type", "TXT"),
-  ])
-  |> request.set_header("accept", "application/dns-json")
+fn resolver_decoder() -> Decoder(Request(String)) {
+  use address <- decode.field("dns", decode.string)
+
+  case uri.parse(address) |> result.try(request.from_uri) {
+    Ok(resolver) -> decode.success(resolver)
+    Error(Nil) -> decode.failure(request.new(), "Resolver")
+  }
 }
 
-fn records_decoder() -> Decoder(List(String)) {
-  let answer = {
-    use kind <- decode.field("type", decode.int)
-    use data <- decode.field("data", decode.string)
+pub fn record_request(
+  resolver: Request(String),
+  handle: Handle,
+) -> Request(BitArray) {
+  let name =
+    string.split(handle.dns_hostname(handle), on: ".")
+    |> list.map(fn(label) {
+      let length = string.byte_size(label)
 
-    decode.success(#(kind, data))
-  }
+      <<length, label:utf8>>
+    })
+    |> bit_array.concat
+  let question = <<
+    0:16, 0x0100:16, 1:16, 0:48, name:bits, 0, text_record:16, 1:16,
+  >>
 
-  use answers <- decode.optional_field("Answer", [], decode.list(answer))
+  resolver
+  |> request.set_query([
+    #("dns", bit_array.base64_url_encode(question, False)),
+  ])
+  |> request.set_header("accept", "application/dns-message")
+  |> request.set_body(<<>>)
+}
 
-  decode.success(
-    list.filter_map(answers, fn(answer) {
-      let #(kind, data) = answer
+fn text_records(reply: BitArray) -> Result(List(String), Nil) {
+  case reply {
+    <<_:24, flags, questions:16, answers:16, _:32, rest:bytes>> ->
+      case int.bitwise_and(flags, 15) {
+        0 | 3 -> {
+          use rest <- result.try(skip_questions(rest, questions))
 
-      case kind == text_record {
-        True -> Ok(string.replace(data, each: "\"", with: ""))
-        False -> Error(Nil)
+          read_answers(rest, answers, [])
+        }
+        _ -> Error(Nil)
       }
-    }),
-  )
+    _ -> Error(Nil)
+  }
+}
+
+fn skip_questions(data: BitArray, count: Int) -> Result(BitArray, Nil) {
+  case count, skip_name(data) {
+    0, _ -> Ok(data)
+    _, Ok(<<_:32, rest:bytes>>) -> skip_questions(rest, count - 1)
+    _, Ok(_) | _, Error(Nil) -> Error(Nil)
+  }
+}
+
+fn skip_name(data: BitArray) -> Result(BitArray, Nil) {
+  case data {
+    <<0, rest:bytes>> -> Ok(rest)
+    <<first, _, rest:bytes>> if first >= 192 -> Ok(rest)
+    <<length, _:bytes-size(length), rest:bytes>> -> skip_name(rest)
+    _ -> Error(Nil)
+  }
+}
+
+fn read_answers(
+  data: BitArray,
+  count: Int,
+  found: List(String),
+) -> Result(List(String), Nil) {
+  case count, skip_name(data) {
+    0, _ -> Ok(list.reverse(found))
+    _, Ok(<<kind:16, _:48, length:16, value:bytes-size(length), rest:bytes>>) ->
+      case kind == text_record {
+        True -> {
+          use text <- result.try(read_text(value, ""))
+
+          read_answers(rest, count - 1, [text, ..found])
+        }
+        False -> read_answers(rest, count - 1, found)
+      }
+    _, Ok(_) | _, Error(Nil) -> Error(Nil)
+  }
+}
+
+fn read_text(value: BitArray, read: String) -> Result(String, Nil) {
+  case value {
+    <<>> -> Ok(read)
+    <<length, part:bytes-size(length), rest:bytes>> -> {
+      use part <- result.try(bit_array.to_string(part))
+
+      read_text(rest, read <> part)
+    }
+    _ -> Error(Nil)
+  }
 }
 
 pub fn record_finding(
-  result: Result(Response(String), rsvp.Error(String)),
+  result: Result(Response(BitArray), rsvp.Error(BitArray)),
   account: Did,
 ) -> Result(Finding, Nil) {
   use response <- result.try(result.replace_error(result, Nil))
-  use records <- result.map(
-    json.parse(response.body, records_decoder()) |> result.replace_error(Nil),
-  )
+  use records <- result.map(text_records(response.body))
 
   case did.from_txt_records(records) {
     Ok(named) if named == account -> PointsHere

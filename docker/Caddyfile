@@ -3,7 +3,7 @@
 	encode zstd gzip
 
 	header {
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' https: data:; connect-src https:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' https: data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
@@ -14,9 +14,10 @@
 		file
 	}
 	@unknown_hashed path_regexp ^/homestead\.[0-9a-f]{16}\.(js|css)$
+	@templated path /oauth-client-metadata.json /config.json
 
 	route {
-		handle /oauth-client-metadata.json {
+		handle @templated {
 			header Cache-Control "no-cache"
 			templates {
 				mime application/json
