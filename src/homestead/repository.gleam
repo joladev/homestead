@@ -6,6 +6,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/pair
 import gleam/result
 import gleam/string
 import gleam/time/calendar
@@ -629,16 +630,18 @@ fn view_collections(collections: Remote(List(String))) -> Element(Message) {
 
 pub fn group_collections(ids: List(String)) -> List(CollectionGroup) {
   list.map(ids, name_collection)
-  |> list.group(fn(named) { named.0 })
+  |> list.group(pair.first)
   |> dict.to_list
-  |> list.sort(fn(one, other) { string.compare(one.0, other.0) })
   |> list.map(fn(group) {
+    let #(owner, named) = group
+
     CollectionGroup(
-      owner: group.0,
-      collections: list.map(group.1, fn(named) { named.1 })
+      owner:,
+      collections: list.map(named, pair.second)
         |> list.sort(fn(one, other) { string.compare(one.id, other.id) }),
     )
   })
+  |> list.sort(fn(one, other) { string.compare(one.owner, other.owner) })
 }
 
 fn name_collection(id: String) -> #(String, NamedCollection) {

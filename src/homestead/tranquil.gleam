@@ -1343,7 +1343,9 @@ pub fn update_contact(
 ) -> Command(Nil) {
   let usernames =
     list.map(usernames, fn(entry) {
-      #(channel_name(entry.0) <> "Username", json.string(entry.1))
+      let #(channel, username) = entry
+
+      #(channel_name(channel) <> "Username", json.string(username))
     })
 
   command(

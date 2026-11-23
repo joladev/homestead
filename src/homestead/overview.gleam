@@ -43,12 +43,7 @@ type Copying {
 }
 
 type Row {
-  Row(
-    label: String,
-    tone: Tone,
-    facts: Remote(String),
-    action: #(String, Route),
-  )
+  Row(label: String, tone: Tone, facts: Remote(String), link: String, to: Route)
 }
 
 pub fn init(session: Session) -> #(Model, Effect(Message)) {
@@ -169,7 +164,8 @@ fn rows(
         label: "warn",
         tone: Warning,
         facts: Loaded("Email not verified"),
-        action: #("Verify email", Account(Profile)),
+        link: "Verify email",
+        to: Account(Profile),
       ),
     ]
     Loaded(value: tranquil.Account(contact_channel: channel, ..)) -> [
@@ -177,7 +173,8 @@ fn rows(
         label: "warn",
         tone: Warning,
         facts: Loaded(tranquil.channel_label(channel) <> " not verified"),
-        action: #("Verify contact", Account(Profile)),
+        link: "Verify contact",
+        to: Account(Profile),
       ),
     ]
   }
@@ -202,29 +199,36 @@ fn rows(
           False -> "doesn't resolve"
         }
       }),
-      action: #("Details", Account(Profile)),
+      link: "Details",
+      to: Account(Profile),
     ),
-    Row(label: "Sign-in", tone: Plain, facts: sign_in_methods(model), action: #(
-      "Manage",
-      Access(SignInMethods),
-    )),
+    Row(
+      label: "Sign-in",
+      tone: Plain,
+      facts: sign_in_methods(model),
+      link: "Manage",
+      to: Access(SignInMethods),
+    ),
     Row(
       label: "Sessions",
       tone: Plain,
       facts: remote.map(model.sessions, describe_sessions),
-      action: #("Review", Access(Sessions)),
+      link: "Review",
+      to: Access(Sessions),
     ),
     Row(
       label: "Apps",
       tone: Plain,
       facts: remote.map(model.sessions, describe_apps),
-      action: #("Review", Access(ConnectedApps)),
+      link: "Review",
+      to: Access(ConnectedApps),
     ),
     Row(
       label: "Data",
       tone: Plain,
       facts: Loaded("Stored on " <> server),
-      action: #("Export", Data(Export)),
+      link: "Export",
+      to: Data(Export),
     ),
   ])
 }
@@ -358,6 +362,6 @@ fn view_row(row: Row) -> Element(Message) {
     details: [
       layout.value(row.facts, html.text),
     ],
-    actions: [html.a([route.href(row.action.1)], [html.text(row.action.0)])],
+    actions: [html.a([route.href(row.to)], [html.text(row.link)])],
   )
 }

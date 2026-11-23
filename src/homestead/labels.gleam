@@ -429,9 +429,11 @@ pub fn view(model: Model) -> Element(Message) {
 fn view_gaps(model: Model, labels: List(Label)) -> List(Element(Message)) {
   let unanswered =
     dict.to_list(model.labelers)
-    |> list.filter_map(fn(labeler) {
-      case { labeler.1 }.own {
-        Failed(_) -> Ok(name(model, labeler.0))
+    |> list.filter_map(fn(entry) {
+      let #(account, labeler) = entry
+
+      case labeler.own {
+        Failed(_) -> Ok(name(model, account))
         Loading | Loaded(_) -> Error(Nil)
       }
     })

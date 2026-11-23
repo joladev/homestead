@@ -489,8 +489,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         Loaded(value: form) -> {
           let changed =
             list.filter(form.usernames, fn(entry) {
+              let #(channel, username) = entry
+
               !list.any(form.saved.usernames, fn(saved) {
-                saved.channel == entry.0 && saved.username == entry.1
+                saved.channel == channel && saved.username == username
               })
             })
 

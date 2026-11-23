@@ -39,15 +39,14 @@ pub fn links_decoder() -> Decoder(List(Link)) {
 
   decode.success(
     dict.to_list(collections)
-    |> list.flat_map(fn(collection) {
-      dict.to_list(collection.1)
-      |> list.map(fn(path) {
-        Link(
-          collection: collection.0,
-          path: path.0,
-          records: path.1.0,
-          accounts: path.1.1,
-        )
+    |> list.flat_map(fn(entry) {
+      let #(collection, paths) = entry
+
+      dict.to_list(paths)
+      |> list.map(fn(entry) {
+        let #(path, #(records, accounts)) = entry
+
+        Link(collection:, path:, records:, accounts:)
       })
     })
     |> list.sort(fn(one, other) { int.compare(other.records, one.records) }),

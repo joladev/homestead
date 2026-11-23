@@ -175,7 +175,11 @@ fn describe_browser(user_agent: String) -> String {
   ]
 
   case
-    list.find(browsers, fn(browser) { string.contains(user_agent, browser.0) })
+    list.find(browsers, fn(browser) {
+      let #(marker, _) = browser
+
+      string.contains(user_agent, marker)
+    })
   {
     Ok(#(_, name)) -> name
     Error(Nil) -> "Browser"
