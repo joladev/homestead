@@ -2,8 +2,10 @@ import at/did
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import homestead/browser
+import homestead/handle_check
 import homestead/layout.{type Tone, Plain, Warning}
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
@@ -11,6 +13,7 @@ import homestead/route.{
   SignInMethods,
 }
 import homestead/session.{type Session}
+import homestead/slingshot
 import homestead/tranquil.{
   type ActiveSession, type Authenticator, type Passkey, type Problem,
 }
@@ -19,6 +22,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import rsvp
 
 pub opaque type Model {
   Model(
@@ -27,6 +31,7 @@ pub opaque type Model {
     authenticator: Remote(Authenticator),
     has_password: Remote(Bool),
     sessions: Remote(List(ActiveSession)),
+    verified_handle: Remote(Option(String)),
     copying: Copying,
   )
 }
@@ -54,6 +59,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       authenticator: Loading,
       has_password: Loading,
       sessions: Loading,
+      verified_handle: Loading,
       copying: NotCopied,
     )
   let display_name = tranquil.display_name(session.account(session))
@@ -74,6 +80,10 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
         ServerReturnedPasswordStatus,
       ),
       tranquil.load(session, tranquil.sessions(), ServerReturnedSessions),
+      rsvp.send(
+        slingshot.identity_request(session.account(session)),
+        rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
+      ),
     ]),
   )
 }
@@ -84,6 +94,7 @@ pub opaque type Message {
   ServerReturnedAuthenticator(result: Result(Authenticator, Problem))
   ServerReturnedPasswordStatus(result: Result(Bool, Problem))
   ServerReturnedSessions(result: Result(List(ActiveSession), Problem))
+  SlingshotReturnedHandle(result: Result(String, rsvp.Error(String)))
   UserClickedCopy(text: String)
   BrowserCopiedText(result: Result(Nil, Nil))
 }
@@ -117,6 +128,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ServerReturnedSessions(result:) -> #(
       Model(..model, sessions: remote.from_result(result)),
+      effect.none(),
+    )
+
+    SlingshotReturnedHandle(result: returned) -> #(
+      Model(
+        ..model,
+        verified_handle: handle_check.verified_handle(returned)
+          |> result.replace_error(tranquil.Unreachable)
+          |> remote.from_result,
+      ),
       effect.none(),
     )
 
@@ -155,7 +176,26 @@ fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
     ]
   }
 
+  let resolves =
+    remote.map(model.verified_handle, fn(verified) {
+      verified == Some(account.handle)
+    })
+
   list.append(contact, [
+    Row(
+      label: "Handle",
+      tone: case resolves {
+        Loaded(value: False) -> Warning
+        Loading | Loaded(value: True) | Failed(_) -> Plain
+      },
+      facts: remote.map(resolves, fn(resolves) {
+        case resolves {
+          True -> "resolves"
+          False -> "doesn't resolve"
+        }
+      }),
+      action: #("Details", Account(Profile)),
+    ),
     Row(label: "Sign-in", tone: Plain, facts: sign_in_methods(model), action: #(
       "Manage",
       Access(SignInMethods),

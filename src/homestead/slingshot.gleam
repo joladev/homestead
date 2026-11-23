@@ -13,3 +13,14 @@ pub fn resolve_request(handle: Handle) -> Request(String) {
 pub fn resolve_decoder() -> Decoder(Did) {
   decode.at(["did"], did.decoder())
 }
+
+pub fn identity_request(account: Did) -> Request(String) {
+  request.new()
+  |> request.set_host("slingshot.cove.town")
+  |> request.set_path("/xrpc/blue.microcosm.identity.resolveMiniDoc")
+  |> request.set_query([#("identifier", did.to_string(account))])
+}
+
+pub fn handle_decoder() -> Decoder(String) {
+  decode.at(["handle"], decode.string)
+}

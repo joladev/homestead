@@ -1,13 +1,18 @@
 import at/did
+import at/handle
+import gleam/http/response.{type Response}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import homestead/browser
+import homestead/handle_check.{type Finding}
 import homestead/layout
 import homestead/remote.{
   type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
 }
 import homestead/session.{type Session}
+import homestead/slingshot
 import homestead/tranquil.{
   type Account, type Channel, type ContactPreferences, type Problem, type Server,
 }
@@ -16,6 +21,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import rsvp
 
 const code_channel = tranquil.Signal
 
@@ -25,9 +31,18 @@ pub opaque type Model {
     account: Remote(Account),
     server: Remote(Server),
     handle: HandleForm,
+    check: Check,
     verification: Verification,
     email: EmailForm,
     contact: Remote(ContactForm),
+  )
+}
+
+type Check {
+  Check(
+    verified: Remote(Option(String)),
+    record: Remote(Finding),
+    file: Remote(Finding),
   )
 }
 
@@ -95,6 +110,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
         submission: Idle,
         copied: NothingCopied,
       ),
+      check: Check(verified: Loading, record: Loading, file: Loading),
       verification: Verification(
         code: "",
         submission: Idle,
@@ -123,6 +139,10 @@ pub opaque type Message {
   UserPickedDomain(domain: Domain)
   UserSubmittedHandle
   ServerChangedHandle(result: Result(Nil, Problem))
+  UserClickedCheckHandle
+  SlingshotReturnedHandle(result: Result(String, rsvp.Error(String)))
+  DnsReturnedRecords(result: Result(Response(String), rsvp.Error(String)))
+  HandleHostReturnedFile(result: Result(Response(String), rsvp.Error(String)))
   UserClickedCopy(text: String, copied: Copied)
   BrowserCopiedText(copied: Copied, result: Result(Nil, Nil))
   UserClickedResend
@@ -150,8 +170,59 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   let session = model.session
 
   case message {
-    ServerReturnedAccount(result:) -> #(
-      Model(..model, account: remote.from_result(result)),
+    ServerReturnedAccount(result:) -> {
+      let account = remote.from_result(result)
+      let #(check, checking) = check_handle(session, account)
+
+      #(Model(..model, account:, check:), checking)
+    }
+
+    UserClickedCheckHandle -> {
+      let #(check, checking) = check_handle(session, model.account)
+
+      #(Model(..model, check:), checking)
+    }
+
+    SlingshotReturnedHandle(result: returned) -> #(
+      Model(
+        ..model,
+        check: Check(
+          ..model.check,
+          verified: handle_check.verified_handle(returned)
+            |> result.replace_error(tranquil.Unreachable)
+            |> remote.from_result,
+        ),
+      ),
+      effect.none(),
+    )
+
+    DnsReturnedRecords(result: returned) -> #(
+      Model(
+        ..model,
+        check: Check(
+          ..model.check,
+          record: handle_check.record_finding(
+              returned,
+              session.account(session),
+            )
+            |> result.replace_error(tranquil.Unreachable)
+            |> remote.from_result,
+        ),
+      ),
+      effect.none(),
+    )
+
+    HandleHostReturnedFile(result: returned) -> #(
+      Model(
+        ..model,
+        check: Check(
+          ..model.check,
+          file: Loaded(handle_check.file_finding(
+            returned,
+            session.account(session),
+          )),
+        ),
+      ),
       effect.none(),
     )
 
@@ -501,6 +572,44 @@ fn full_handle(form: HandleForm) -> String {
   }
 }
 
+fn check_handle(
+  session: Session,
+  account: Remote(Account),
+) -> #(Check, Effect(Message)) {
+  let handle = case account {
+    Loaded(value: account) -> handle.from_string(account.handle)
+    Loading | Failed(_) -> Error(Nil)
+  }
+
+  case handle {
+    Ok(handle) -> #(
+      Check(verified: Loading, record: Loading, file: Loading),
+      effect.batch([
+        rsvp.send(
+          slingshot.identity_request(session.account(session)),
+          rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
+        ),
+        rsvp.send(
+          handle_check.record_request(handle),
+          rsvp.expect_ok_response(DnsReturnedRecords),
+        ),
+        rsvp.send(
+          handle.resolve(handle),
+          rsvp.expect_ok_response(HandleHostReturnedFile),
+        ),
+      ]),
+    )
+    Error(Nil) -> #(
+      Check(
+        verified: Failed(tranquil.NotUnderstood),
+        record: Failed(tranquil.NotUnderstood),
+        file: Failed(tranquil.NotUnderstood),
+      ),
+      effect.none(),
+    )
+  }
+}
+
 fn load_account(session: Session) -> Effect(Message) {
   tranquil.load(session, tranquil.account(), ServerReturnedAccount)
 }
@@ -556,6 +665,7 @@ pub fn view(model: Model) -> Element(Message) {
         layout.title_section("handle", [
           view_handle(
             model.handle,
+            model.check,
             account,
             model.server,
             did.to_string(session.account(model.session)),
@@ -585,6 +695,7 @@ pub fn view(model: Model) -> Element(Message) {
 
 fn view_handle(
   form: HandleForm,
+  check: Check,
   account: Account,
   server: Remote(Server),
   did: String,
@@ -595,12 +706,45 @@ fn view_handle(
     Loading | Failed(_) -> []
   }
 
+  let resolves =
+    remote.map(check.verified, fn(verified) { verified == Some(account.handle) })
+  let is_checking =
+    check.verified == Loading
+    || check.record == Loading
+    || check.file == Loading
+
   layout.block([
     layout.row(
-      tone: layout.Plain,
+      tone: case resolves {
+        Loaded(value: False) -> layout.Warning
+        Loading | Loaded(value: True) | Failed(_) -> layout.Plain
+      },
       name: "Handle",
-      details: [html.code([], [html.text("@" <> account.handle)])],
-      actions: [],
+      details: [
+        html.span([attribute.class("lines")], [
+          html.code([], [html.text("@" <> account.handle)]),
+          case resolves {
+            Loading -> layout.pending()
+            Loaded(value: True) -> layout.dim("Resolves to this account")
+            Loaded(value: False) ->
+              html.span([], [html.text("Doesn't resolve to this account")])
+            Failed(_) -> layout.dim("Couldn't check whether it resolves")
+          },
+          view_finding("DNS record", check.record),
+          view_finding("File", check.file),
+        ]),
+      ],
+      actions: [
+        html.button(
+          [
+            attribute.class("action"),
+            attribute.type_("button"),
+            attribute.disabled(is_checking),
+            event.on_click(UserClickedCheckHandle),
+          ],
+          [html.text("Check again")],
+        ),
+      ],
     ),
     html.form([event.on_submit(fn(_) { UserSubmittedHandle })], [
       layout.field(
@@ -651,6 +795,22 @@ fn view_handle(
       ]),
     ]),
   ])
+}
+
+fn view_finding(subject: String, finding: Remote(Finding)) -> Element(Message) {
+  case finding {
+    Loading -> layout.pending()
+    Failed(_) -> layout.dim(subject <> " couldn't be checked")
+    Loaded(value: handle_check.PointsHere) ->
+      layout.dim(subject <> " points to this account")
+    Loaded(value: handle_check.PointsElsewhere) ->
+      layout.dim(subject <> " points to another account")
+    Loaded(value: handle_check.Malformed) ->
+      layout.dim(subject <> " doesn't contain a DID")
+    Loaded(value: handle_check.Absent) -> layout.dim(subject <> " not found")
+    Loaded(value: handle_check.Unreadable) ->
+      layout.dim(subject <> " can't be read from a browser")
+  }
 }
 
 fn view_domain_setup(form: HandleForm, did: String) -> Element(Message) {
