@@ -1,7 +1,7 @@
 import homestead/browser
 import homestead/confirmation
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loaded, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
@@ -146,12 +146,15 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model) -> List(Element(Message)) {
-  [
-    layout.block(case model.is_linked, model.action {
-      Loading, _ -> [layout.loading(1)]
-      Failed(_), _ -> [layout.problem("Couldn't load")]
+  let status = fn(is_busy: Bool) {
+    use is_linked <- layout.awaited_row(name: "Signal", of: model.is_linked)
 
-      Loaded(_), Scanning(qr_image:, ..) -> [
+    view_status(is_linked, is_busy)
+  }
+
+  [
+    layout.block(case model.action {
+      Scanning(qr_image:, ..) -> [
         layout.row(
           tone: layout.Plain,
           name: "Scan",
@@ -172,7 +175,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
         ),
       ]
 
-      Loaded(_), ConfirmingUnlink -> [
+      ConfirmingUnlink -> [
         confirmation.view(
           question: "Unlink?",
           consequence: "Messages over Signal stop.",
@@ -182,23 +185,16 @@ pub fn view(model: Model) -> List(Element(Message)) {
         ),
       ]
 
-      Loaded(value: is_linked), TimedOut -> [
-        view_status(is_linked, False),
-        layout.problem("Linking timed out"),
-      ]
+      TimedOut -> [status(False), layout.problem("Linking timed out")]
 
-      Loaded(value: is_linked), Refused(problem:) -> [
-        view_status(is_linked, False),
+      Refused(problem:) -> [
+        status(False),
         layout.problem(describe_refusal(problem)),
       ]
 
-      Loaded(value: is_linked), Preparing
-      | Loaded(value: is_linked), Unlinking
-      -> [
-        view_status(is_linked, True),
-      ]
+      Preparing | Unlinking -> [status(True)]
 
-      Loaded(value: is_linked), Resting -> [view_status(is_linked, False)]
+      Resting -> [status(False)]
     }),
   ]
 }

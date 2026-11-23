@@ -3,17 +3,18 @@ import homestead/layout
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/tranquil.{type AccessLevel}
 import lustre/element.{type Element}
+import lustre/element/html
 
-pub fn describe(levels: Remote(List(AccessLevel)), scopes: String) -> String {
-  let levels = case levels {
-    Loaded(value: levels) -> levels
-    Loading | Failed(_) -> []
-  }
+pub fn view_level(
+  levels: Remote(List(AccessLevel)),
+  scopes: String,
+) -> Element(message) {
+  use levels <- layout.value(levels)
 
-  case list.find(levels, fn(level) { level.scopes == scopes }) {
-    Ok(level) -> level.label
-    Error(Nil) -> "Custom"
-  }
+  html.text(case list.find(levels, fn(level) { level.scopes == scopes }) {
+    Ok(level) -> level.label <> " "
+    Error(Nil) -> "Custom "
+  })
 }
 
 pub fn first(levels: Remote(List(AccessLevel))) -> String {
@@ -41,14 +42,12 @@ pub fn view_choice(
   is_disabled is_disabled: Bool,
   on_pick on_pick: fn(String) -> message,
 ) -> Element(message) {
+  use levels <- layout.value(levels)
+
   layout.choice(
     id:,
     label: "Access",
-    options: case levels {
-      Loaded(value: levels) ->
-        list.map(levels, fn(level) { #(level.name, level.label) })
-      Loading | Failed(_) -> []
-    },
+    options: list.map(levels, fn(level) { #(level.name, level.label) }),
     picked:,
     is_disabled:,
     on_pick:,

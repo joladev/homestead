@@ -166,78 +166,95 @@ pub fn view(model: Model) -> Element(Message) {
       NothingCopied | CopiedDid | CopiedSigningKey | CopiedDocument -> None
     }
   }
-  let plain = fn(name: String, value: Option(String)) {
+  let plain = fn(name: String, value: Remote(Option(String))) {
     layout.row(
       tone: layout.Plain,
       name:,
       details: [
-        case value {
-          Some(value) -> html.text(value)
-          None -> layout.dim("none")
+        {
+          use value <- layout.value(value)
+
+          case value {
+            Some(value) -> html.text(value)
+            None -> layout.dim("none")
+          }
         },
       ],
       actions: [],
     )
   }
 
-  layout.page(case model.identity {
-    Loading -> [layout.loading_section()]
+  layout.page([
+    layout.title_section("identity", [
+      layout.block([
+        layout.copy_row(
+          name: "DID",
+          value: model.account,
+          note: note(CopiedDid),
+          on_copy: UserClickedCopy(model.account, CopiedDid),
+        ),
+        ..list.append(
+          {
+            use identity <- layout.fields(model.identity)
 
-    Failed(_) -> [
-      layout.title_section("identity", [
-        layout.block([layout.problem("Couldn't load")]),
-      ]),
-    ]
-
-    Loaded(value: identity) -> [
-      layout.title_section("identity", [
-        layout.block([
-          layout.copy_row(
-            name: "DID",
-            value: model.account,
-            note: note(CopiedDid),
-            on_copy: UserClickedCopy(model.account, CopiedDid),
-          ),
-          plain("Handle", identity.handle),
-          plain("Server", identity.server),
-          case identity.signing_key {
-            Some(key) ->
-              layout.copy_row(
-                name: "Signing key",
-                value: key,
-                note: note(CopiedSigningKey),
-                on_copy: UserClickedCopy(key, CopiedSigningKey),
-              )
-            None -> plain("Signing key", None)
+            [
+              plain("Handle", remote.map(identity, fn(found) { found.handle })),
+              plain("Server", remote.map(identity, fn(found) { found.server })),
+              case identity {
+                Loaded(value: Identity(signing_key: Some(key), ..)) ->
+                  layout.copy_row(
+                    name: "Signing key",
+                    value: key,
+                    note: note(CopiedSigningKey),
+                    on_copy: UserClickedCopy(key, CopiedSigningKey),
+                  )
+                Loaded(value: Identity(signing_key: None, ..))
+                | Loading
+                | Failed(_) ->
+                  plain(
+                    "Signing key",
+                    remote.map(identity, fn(found) { found.signing_key }),
+                  )
+              },
+            ]
           },
           case model.history {
-            Recorded(log: Loaded(value: history)) ->
+            NotRecorded -> []
+            Recorded(log:) -> [
               layout.row(
                 tone: layout.Plain,
                 name: "Rotation keys",
-                details: case history.rotation_keys {
-                  [] -> [layout.dim("none")]
-                  [_, ..] as keys -> [
-                    html.span(
-                      [attribute.class("lines")],
-                      list.map(keys, fn(key) {
-                        html.code([attribute.class("long")], [html.text(key)])
-                      }),
-                    ),
-                  ]
-                },
+                details: [
+                  {
+                    use history <- layout.value(log)
+
+                    case history.rotation_keys {
+                      [] -> layout.dim("none")
+                      [_, ..] as keys ->
+                        html.span(
+                          [attribute.class("lines")],
+                          list.map(keys, fn(key) {
+                            html.code([attribute.class("long")], [
+                              html.text(key),
+                            ])
+                          }),
+                        )
+                    }
+                  },
+                ],
                 actions: [],
-              )
-            NotRecorded | Recorded(log: Loading) | Recorded(log: Failed(_)) ->
-              element.none()
+              ),
+            ]
           },
-        ]),
+        )
       ]),
-      layout.section("document", [
-        layout.block([
-          layout.wide_row([
-            json_view.view(identity.json),
-          ]),
+    ]),
+    layout.section("document", [
+      layout.block({
+        use identity <- layout.rows(model.identity, placeholders: 3)
+
+        [
+          layout.wide_row([json_view.view(identity.json)]),
           layout.actions_row([
             case note(CopiedDocument) {
               Some(note) -> layout.dim(note)
@@ -251,21 +268,22 @@ pub fn view(model: Model) -> Element(Message) {
               [html.text("Copy")],
             ),
           ]),
-        ]),
-      ]),
-      layout.section("history", [
-        layout.block(case model.history {
-          NotRecorded -> [
-            layout.note("did:web identities have no recorded history", []),
-          ]
-          Recorded(log: Loading) -> []
-          Recorded(log: Failed(_)) -> [layout.problem("Couldn't load")]
-          Recorded(log: Loaded(value: history)) ->
-            list.map(history.events, view_event(_, model.local_offset))
-        }),
-      ]),
-    ]
-  })
+        ]
+      }),
+    ]),
+    layout.section("history", [
+      layout.block(case model.history {
+        NotRecorded -> [
+          layout.note("did:web identities have no recorded history", []),
+        ]
+        Recorded(log:) -> {
+          use history <- layout.rows(log, placeholders: 3)
+
+          list.map(history.events, view_event(_, model.local_offset))
+        }
+      }),
+    ]),
+  ])
 }
 
 fn view_event(event: Event, local_offset: Duration) -> Element(message) {

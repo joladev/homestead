@@ -8,7 +8,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type AccountPage, type ListedAccount, type Problem}
 import lustre/attribute
@@ -269,27 +269,27 @@ pub fn view(model: Model) -> List(Element(Message)) {
             ),
           ]),
         ],
-        case model.accounts {
-          Loading -> [layout.loading(3)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: accounts) ->
-            layout.listing(
-              empty: "No accounts",
-              rows: list.flat_map(accounts, view_account(_, model)),
-              actions: case model.next {
-                Some(after) -> [
-                  html.button(
-                    [
-                      attribute.class("action"),
-                      attribute.disabled(model.more == LoadingMore),
-                      event.on_click(UserClickedMore(after)),
-                    ],
-                    [html.text("More")],
-                  ),
-                ]
-                None -> []
-              },
-            )
+        {
+          use accounts <- layout.rows(model.accounts, placeholders: 3)
+          layout.listing(
+            empty: "No accounts",
+            rows: list.map(accounts, fn(account) {
+              #(account.did, element.fragment(view_account(account, model)))
+            }),
+            actions: case model.next {
+              Some(after) -> [
+                html.button(
+                  [
+                    attribute.class("action"),
+                    attribute.disabled(model.more == LoadingMore),
+                    event.on_click(UserClickedMore(after)),
+                  ],
+                  [html.text("More")],
+                ),
+              ]
+              None -> []
+            },
+          )
         },
         case model.more {
           MoreRefused(_) -> [layout.problem("Couldn't load more")]

@@ -1,6 +1,6 @@
 import at/did.{type Did}
 import gleam/http/response
-import homestead/handle_check.{
+import homestead/profile.{
   Absent, Malformed, PointsElsewhere, PointsHere, Unreadable,
 }
 import rsvp
@@ -22,16 +22,15 @@ pub fn a_dns_answer_is_judged_by_its_text_record_test() {
        \"data\":\"\\\"did=did:plc:ewvi7nxzyoun6zhxrhs64oiz\\\"\"},
       {\"name\":\"_atproto.noor.example\",\"type\":5,\"data\":\"elsewhere.example.\"}]}"
 
-  assert handle_check.record_finding(answered(body), account())
-    == Ok(PointsHere)
-  assert handle_check.record_finding(answered("{\"Status\":3}"), account())
+  assert profile.record_finding(answered(body), account()) == Ok(PointsHere)
+  assert profile.record_finding(answered("{\"Status\":3}"), account())
     == Ok(Absent)
-  assert handle_check.record_finding(Error(rsvp.NetworkError), account())
+  assert profile.record_finding(Error(rsvp.NetworkError), account())
     == Error(Nil)
 }
 
 pub fn a_handle_file_is_judged_by_its_content_test() {
-  let finding = handle_check.file_finding(_, account())
+  let finding = profile.file_finding(_, account())
 
   assert finding(answered("did:plc:ewvi7nxzyoun6zhxrhs64oiz\n")) == PointsHere
   assert finding(answered("did:plc:ar7c4by46qjdydhdevvrndac"))

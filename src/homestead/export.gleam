@@ -174,17 +174,24 @@ pub fn media_filename(handle: String) -> String {
 }
 
 pub fn view(model: Model) -> Element(Message) {
+  let media = {
+    use account <- remote.then(model.account)
+    use media <- remote.map(model.media)
+
+    #(account.handle, media)
+  }
+
   layout.page([
     layout.title_section("export", [
-      layout.block(case model.account {
-        Loading -> [layout.loading(2)]
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: account) -> [
-          layout.row(
-            tone: layout.Plain,
-            name: "Records",
-            details: [html.text("Every record in one file")],
-            actions: [
+      layout.block([
+        layout.row(
+          tone: layout.Plain,
+          name: "Records",
+          details: [html.text("Every record in one file")],
+          actions: [
+            {
+              use account <- layout.value(model.account)
+
               html.button(
                 [
                   attribute.class("action"),
@@ -197,33 +204,37 @@ pub fn view(model: Model) -> Element(Message) {
                     NotDownloading | Refused(_) -> "Download"
                   }),
                 ],
-              ),
-            ],
-          ),
-          case model.download {
-            Refused(_) -> layout.problem("Couldn't download")
-            NotDownloading | Downloading -> element.none()
-          },
-          view_media(model, account.handle),
-          case model.archive {
-            SavingFailed -> layout.problem("Couldn't download")
-            NotSaving | Saving(..) -> element.none()
-          },
-        ]
-      }),
+              )
+            },
+          ],
+        ),
+        case model.download {
+          Refused(_) -> layout.problem("Couldn't download")
+          NotDownloading | Downloading -> element.none()
+        },
+        {
+          use #(handle, media) <- layout.awaited_row(name: "Media", of: media)
+
+          view_media(model, handle, media)
+        },
+        case model.archive {
+          SavingFailed -> layout.problem("Couldn't download")
+          NotSaving | Saving(..) -> element.none()
+        },
+      ]),
     ]),
   ])
 }
 
-fn view_media(model: Model, handle: String) -> Element(Message) {
-  let #(details, actions) = case model.media, model.archive {
-    Loading, _ -> #([], [])
+fn view_media(
+  model: Model,
+  handle: String,
+  media: List(String),
+) -> Element(Message) {
+  let #(details, actions) = case media, model.archive {
+    [], _ -> #([layout.dim("none")], [])
 
-    Failed(_), _ -> #([layout.dim("couldn't load")], [])
-
-    Loaded(value: []), _ -> #([layout.dim("none")], [])
-
-    Loaded(value: media), Saving(done:, stopper:) -> #(
+    [_, ..], Saving(done:, stopper:) -> #(
       [
         html.text(
           int.to_string(done) <> " of " <> int.to_string(list.length(media)),
@@ -243,7 +254,7 @@ fn view_media(model: Model, handle: String) -> Element(Message) {
       },
     )
 
-    Loaded(value: media), NotSaving | Loaded(value: media), SavingFailed -> #(
+    [_, ..], NotSaving | [_, ..], SavingFailed -> #(
       [
         html.text(case list.length(media) {
           1 -> "1 file in one zip"

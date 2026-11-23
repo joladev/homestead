@@ -5,7 +5,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import homestead/browser
-import homestead/handle_check
 import homestead/layout.{type Tone, Plain, Warning}
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
@@ -134,7 +133,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     SlingshotReturnedHandle(result: returned) -> #(
       Model(
         ..model,
-        verified_handle: handle_check.verified_handle(returned)
+        verified_handle: slingshot.verified_handle(returned)
           |> result.replace_error(tranquil.Unreachable)
           |> remote.from_result,
       ),
@@ -155,10 +154,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   }
 }
 
-fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
-  let contact = case account.contact_channel, account.contact_verified {
-    _, True -> []
-    tranquil.Email, False -> [
+fn rows(
+  model: Model,
+  account: Remote(tranquil.Account),
+  server: String,
+) -> List(Row) {
+  let contact = case account {
+    Loaded(value: tranquil.Account(contact_verified: True, ..))
+    | Loading
+    | Failed(_) -> []
+    Loaded(value: tranquil.Account(contact_channel: tranquil.Email, ..)) -> [
       Row(
         label: "warn",
         tone: Warning,
@@ -166,7 +171,7 @@ fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
         action: #("Verify email", Account(Profile)),
       ),
     ]
-    channel, False -> [
+    Loaded(value: tranquil.Account(contact_channel: channel, ..)) -> [
       Row(
         label: "warn",
         tone: Warning,
@@ -176,10 +181,12 @@ fn rows(model: Model, account: tranquil.Account, server: String) -> List(Row) {
     ]
   }
 
-  let resolves =
-    remote.map(model.verified_handle, fn(verified) {
-      verified == Some(account.handle)
-    })
+  let resolves = {
+    use account <- remote.then(account)
+    use verified <- remote.map(model.verified_handle)
+
+    verified == Some(account.handle)
+  }
 
   list.append(contact, [
     Row(
@@ -293,40 +300,30 @@ pub fn view(
   session: Session,
   account: Remote(tranquil.Account),
 ) -> Element(Message) {
-  case account, model.display_name {
-    Loading, _ | Loaded(_), Loading -> layout.page([layout.loading_section()])
-
-    Failed(_), _ ->
-      layout.page([
-        html.p([], [html.text("Couldn't load your account from the server.")]),
-      ])
-
-    Loaded(value: account), Loaded(value: display_name) ->
-      view_loaded(model, session, account, display_name)
-
-    Loaded(value: account), Failed(_) ->
-      view_loaded(model, session, account, None)
-  }
-}
-
-fn view_loaded(
-  model: Model,
-  session: Session,
-  account: tranquil.Account,
-  display_name: Option(String),
-) -> Element(Message) {
   let server = session.server(session)
-  let handle = "@" <> account.handle
   let account_did = did.to_string(session.account(session))
+  let names = {
+    use account <- remote.then(account)
+    use display_name <- remote.map(model.display_name)
+
+    #(display_name, "@" <> account.handle)
+  }
 
   layout.page([
     html.section([], [
       html.p([attribute.class("prompt")], [html.text("whoami")]),
-      html.h1([], [html.text(option.unwrap(display_name, handle))]),
+      html.h1([], [
+        {
+          use #(display_name, handle) <- layout.value(names)
+
+          html.text(option.unwrap(display_name, handle))
+        },
+      ]),
       html.p([], [
-        case display_name {
-          Some(_) -> html.code([], [html.text(handle)])
-          None -> element.none()
+        case names {
+          Loaded(value: #(Some(_), handle)) ->
+            html.code([], [html.text(handle)])
+          Loaded(value: #(None, _)) | Loading | Failed(_) -> element.none()
         },
         html.text(" on " <> server),
       ]),
@@ -358,11 +355,7 @@ fn view_row(row: Row) -> Element(Message) {
     tone: row.tone,
     name: row.label,
     details: [
-      case row.facts {
-        Loading -> layout.pending()
-        Loaded(value: facts) -> html.text(facts)
-        Failed(_) -> layout.dim("Couldn't load")
-      },
+      layout.value(row.facts, html.text),
     ],
     actions: [html.a([route.href(row.action.1)], [html.text(row.action.0)])],
   )

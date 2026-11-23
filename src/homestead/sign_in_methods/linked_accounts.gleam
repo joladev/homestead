@@ -145,11 +145,16 @@ pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
-        case model.accounts {
-          Loading -> [layout.loading(1)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.note("No linked accounts", [])]
-          Loaded(value: accounts) -> list.map(accounts, view_account(_, model))
+        {
+          use accounts <- layout.rows(model.accounts, placeholders: 1)
+
+          layout.listing(
+            empty: "No linked accounts",
+            rows: list.map(accounts, fn(item) {
+              #(item.id, view_account(item, model))
+            }),
+            actions: [],
+          )
         },
         case model.action {
           Refused(problem:) -> [layout.problem(describe_refusal(problem))]

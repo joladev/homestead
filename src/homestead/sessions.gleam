@@ -6,13 +6,14 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Departure, type Session}
 import homestead/tranquil.{type ActiveSession, type Problem}
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/keyed
 import lustre/event
 
 pub type Filter {
@@ -146,12 +147,9 @@ pub fn view(model: Model) -> Element(Message) {
 }
 
 pub fn view_list(model: Model) -> Element(Message) {
-  case model.sessions {
-    Loading -> layout.block([layout.loading(3)])
-
-    Failed(_) -> layout.block([layout.problem("Couldn't load")])
-
-    Loaded(value: sessions) -> {
+  layout.block({
+    use sessions <- layout.rows(model.sessions, placeholders: 3)
+    {
       let #(current, others) =
         sessions
         |> list.filter(fn(session) {
@@ -160,57 +158,61 @@ pub fn view_list(model: Model) -> Element(Message) {
         |> list.partition(fn(session) { session.is_current })
       let listed = list.append(current, others)
 
-      layout.block(
-        list.flatten([
-          case listed {
-            [] -> [
-              layout.note(
-                case model.filter {
-                  Everything -> "No sessions"
-                  ThroughApps -> "No connected apps"
-                },
-                [],
+      list.flatten([
+        case listed {
+          [] -> [
+            layout.note(
+              case model.filter {
+                Everything -> "No sessions"
+                ThroughApps -> "No connected apps"
+              },
+              [],
+            ),
+          ]
+          [_, ..] -> [
+            keyed.fragment(
+              list.map(listed, fn(session) {
+                #(session.id, view_session(session, model))
+              }),
+            ),
+          ]
+        },
+        case model.filter, listed, model.action {
+          Everything, [_, _, ..], Confirming(target: OtherSessions) -> [
+            confirmation.view(
+              question: "End all?",
+              consequence: "They will have to sign in again.",
+              accept: "End all sessions",
+              on_cancel: UserCancelledEnd(OtherSessions),
+              on_accept: UserConfirmedEnd(OtherSessions),
+            ),
+          ]
+          Everything, [_, _, ..], Idle
+          | Everything, [_, _, ..], Working
+          | Everything, [_, _, ..], Refused(_)
+          | Everything, [_, _, ..], Confirming(target: OneSession(_))
+          -> [
+            layout.actions_row([
+              html.button(
+                [
+                  attribute.id(end_button_id(OtherSessions)),
+                  attribute.class("action"),
+                  attribute.disabled(model.action == Working),
+                  event.on_click(UserClickedEnd(OtherSessions)),
+                ],
+                [html.text("End all sessions")],
               ),
-            ]
-            [_, ..] -> list.map(listed, view_session(_, model))
-          },
-          case model.filter, listed, model.action {
-            Everything, [_, _, ..], Confirming(target: OtherSessions) -> [
-              confirmation.view(
-                question: "End all?",
-                consequence: "They will have to sign in again.",
-                accept: "End all sessions",
-                on_cancel: UserCancelledEnd(OtherSessions),
-                on_accept: UserConfirmedEnd(OtherSessions),
-              ),
-            ]
-            Everything, [_, _, ..], Idle
-            | Everything, [_, _, ..], Working
-            | Everything, [_, _, ..], Refused(_)
-            | Everything, [_, _, ..], Confirming(target: OneSession(_))
-            -> [
-              layout.actions_row([
-                html.button(
-                  [
-                    attribute.id(end_button_id(OtherSessions)),
-                    attribute.class("action"),
-                    attribute.disabled(model.action == Working),
-                    event.on_click(UserClickedEnd(OtherSessions)),
-                  ],
-                  [html.text("End all sessions")],
-                ),
-              ]),
-            ]
-            Everything, [], _ | Everything, [_], _ | ThroughApps, _, _ -> []
-          },
-          case model.action {
-            Refused(_) -> [layout.problem("The server didn't end that")]
-            Idle | Confirming(_) | Working -> []
-          },
-        ]),
-      )
+            ]),
+          ]
+          Everything, [], _ | Everything, [_], _ | ThroughApps, _, _ -> []
+        },
+        case model.action {
+          Refused(_) -> [layout.problem("The server didn't end that")]
+          Idle | Confirming(_) | Working -> []
+        },
+      ])
     }
-  }
+  })
 }
 
 fn view_session(session: ActiveSession, model: Model) -> Element(Message) {

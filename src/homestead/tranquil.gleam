@@ -47,6 +47,16 @@ type Failure {
   Failed(problem: Problem)
 }
 
+pub fn describe_failed_load(problem: Problem) -> String {
+  case problem {
+    Unreachable -> "Couldn't reach the server"
+    Refused("RateLimitExceeded", _) -> "Too many requests. Try again later"
+    Refused(error:, message: "") -> "The server refused: " <> error
+    Refused(message:, ..) -> message
+    NotUnderstood -> "Couldn't read the server's answer"
+  }
+}
+
 pub fn describe(problem: Problem) -> String {
   case problem {
     Refused("RateLimitExceeded", _) -> "Too many attempts. Try again later"

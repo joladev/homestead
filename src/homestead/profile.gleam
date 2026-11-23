@@ -1,12 +1,14 @@
-import at/did
-import at/handle
+import at/did.{type Did}
+import at/handle.{type Handle}
+import gleam/dynamic/decode.{type Decoder}
+import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import homestead/browser
-import homestead/handle_check.{type Finding}
 import homestead/layout
 import homestead/remote.{
   type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
@@ -188,7 +190,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ..model,
         check: Check(
           ..model.check,
-          verified: handle_check.verified_handle(returned)
+          verified: slingshot.verified_handle(returned)
             |> result.replace_error(tranquil.Unreachable)
             |> remote.from_result,
         ),
@@ -201,10 +203,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ..model,
         check: Check(
           ..model.check,
-          record: handle_check.record_finding(
-              returned,
-              session.account(session),
-            )
+          record: record_finding(returned, session.account(session))
             |> result.replace_error(tranquil.Unreachable)
             |> remote.from_result,
         ),
@@ -217,10 +216,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ..model,
         check: Check(
           ..model.check,
-          file: Loaded(handle_check.file_finding(
-            returned,
-            session.account(session),
-          )),
+          file: Loaded(file_finding(returned, session.account(session))),
         ),
       ),
       effect.none(),
@@ -590,7 +586,7 @@ fn check_handle(
           rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
         ),
         rsvp.send(
-          handle_check.record_request(handle),
+          record_request(handle),
           rsvp.expect_ok_response(DnsReturnedRecords),
         ),
         rsvp.send(
@@ -650,64 +646,61 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model) -> Element(Message) {
-  case model.account {
-    Loading -> layout.page([layout.loading_section()])
+  let contact = {
+    use form <- remote.then(model.contact)
+    use account <- remote.map(model.account)
 
-    Failed(_) ->
-      layout.page([
-        layout.title_section("handle", [
-          layout.block([layout.problem("Couldn't load")]),
-        ]),
-      ])
-
-    Loaded(value: account) ->
-      layout.page([
-        layout.title_section("handle", [
-          view_handle(
-            model.handle,
-            model.check,
-            account,
-            model.server,
-            did.to_string(session.account(model.session)),
-          ),
-        ]),
-        layout.section("email", [
-          view_email(model.verification, model.email, account),
-        ]),
-        case model.server, model.contact {
-          Loaded(value: server), Loaded(value: form) ->
-            case
-              list.filter(server.contact_channels, fn(channel) {
-                channel != tranquil.Email
-              })
-            {
-              [] -> element.none()
-              [_, ..] ->
-                layout.section("contact", [
-                  view_contact(form, server, account.handle),
-                ])
-            }
-          _, _ -> element.none()
-        },
-      ])
+    #(form, account)
   }
+
+  layout.page([
+    layout.title_section("handle", [
+      view_handle(
+        model.handle,
+        model.check,
+        model.account,
+        model.server,
+        did.to_string(session.account(model.session)),
+      ),
+    ]),
+    layout.section("email", [
+      view_email(model.verification, model.email, model.account),
+    ]),
+    case model.server {
+      Loading | Failed(_) -> element.none()
+      Loaded(value: server) ->
+        case
+          list.filter(server.contact_channels, fn(channel) {
+            channel != tranquil.Email
+          })
+        {
+          [] -> element.none()
+          [_, ..] ->
+            layout.section("contact", [
+              layout.block({
+                use #(form, account) <- layout.rows(contact, placeholders: 2)
+
+                view_contact(form, server, account.handle)
+              }),
+            ])
+        }
+    },
+  ])
 }
 
 fn view_handle(
   form: HandleForm,
   check: Check,
-  account: Account,
+  account: Remote(Account),
   server: Remote(Server),
   did: String,
 ) -> Element(Message) {
-  let domains = case server {
-    Loaded(value: server) ->
-      list.map(server.handle_domains, fn(domain) { ServerDomain(domain:) })
-    Loading | Failed(_) -> []
-  }
+  let resolves = {
+    use account <- remote.then(account)
+    use verified <- remote.map(check.verified)
 
-  let resolves =
-    remote.map(check.verified, fn(verified) { verified == Some(account.handle) })
+    verified == Some(account.handle)
+  }
   let is_checking =
     check.verified == Loading
     || check.record == Loading
@@ -721,18 +714,22 @@ fn view_handle(
       },
       name: "Handle",
       details: [
-        html.span([attribute.class("lines")], [
-          html.code([], [html.text("@" <> account.handle)]),
-          case resolves {
-            Loading -> layout.pending()
-            Loaded(value: True) -> layout.dim("Resolves to this account")
-            Loaded(value: False) ->
-              html.span([], [html.text("Doesn't resolve to this account")])
-            Failed(_) -> layout.dim("Couldn't check whether it resolves")
-          },
-          view_finding("DNS record", check.record),
-          view_finding("File", check.file),
-        ]),
+        {
+          use account <- layout.value(account)
+
+          html.span([attribute.class("lines")], [
+            html.code([], [html.text("@" <> account.handle)]),
+            case resolves {
+              Loading -> layout.pending()
+              Loaded(value: True) -> layout.dim("Resolves to this account")
+              Loaded(value: False) ->
+                html.span([], [html.text("Doesn't resolve to this account")])
+              Failed(_) -> layout.dim("Couldn't check whether it resolves")
+            },
+            view_finding("DNS record", check.record),
+            view_finding("File", check.file),
+          ])
+        },
       ],
       actions: [
         html.button(
@@ -760,34 +757,40 @@ fn view_handle(
             attribute.disabled(form.submission == Sending),
             event.on_input(UserTypedHandle),
           ]),
-          html.div(
-            [
-              attribute.class("choices"),
-              attribute.role("radiogroup"),
-              attribute.aria_label("Domain"),
-            ],
-            list.map(list.append(domains, [OwnDomain]), fn(domain) {
-              html.label([], [
-                html.input([
-                  attribute.type_("radio"),
-                  attribute.name("handle-domain"),
-                  attribute.checked(domain == form.domain),
-                  event.on_click(UserPickedDomain(domain)),
-                ]),
-                html.span([], [
-                  html.text(case domain {
-                    ServerDomain(domain:) -> "." <> domain
-                    OwnDomain -> "My own domain"
-                  }),
-                ]),
-              ])
-            }),
-          ),
+          {
+            use server <- layout.value(server)
+            let domains = list.map(server.handle_domains, ServerDomain)
+
+            html.div(
+              [
+                attribute.class("choices"),
+                attribute.role("radiogroup"),
+                attribute.aria_label("Domain"),
+              ],
+              list.map(list.append(domains, [OwnDomain]), fn(domain) {
+                html.label([], [
+                  html.input([
+                    attribute.type_("radio"),
+                    attribute.name("handle-domain"),
+                    attribute.checked(domain == form.domain),
+                    event.on_click(UserPickedDomain(domain)),
+                  ]),
+                  html.span([], [
+                    html.text(case domain {
+                      ServerDomain(domain:) -> "." <> domain
+                      OwnDomain -> "My own domain"
+                    }),
+                  ]),
+                ])
+              }),
+            )
+          },
         ]),
       ),
-      case form.domain {
-        OwnDomain -> view_domain_setup(form, did)
-        ServerDomain(_) -> element.none()
+      case form.domain, server {
+        OwnDomain, Loaded(_) | OwnDomain, Failed(_) ->
+          view_domain_setup(form, did)
+        OwnDomain, Loading | ServerDomain(_), _ -> element.none()
       },
       view_refusal(form.submission),
       layout.details_row([
@@ -801,14 +804,13 @@ fn view_finding(subject: String, finding: Remote(Finding)) -> Element(Message) {
   case finding {
     Loading -> layout.pending()
     Failed(_) -> layout.dim(subject <> " couldn't be checked")
-    Loaded(value: handle_check.PointsHere) ->
+    Loaded(value: PointsHere) ->
       layout.dim(subject <> " points to this account")
-    Loaded(value: handle_check.PointsElsewhere) ->
+    Loaded(value: PointsElsewhere) ->
       layout.dim(subject <> " points to another account")
-    Loaded(value: handle_check.Malformed) ->
-      layout.dim(subject <> " doesn't contain a DID")
-    Loaded(value: handle_check.Absent) -> layout.dim(subject <> " not found")
-    Loaded(value: handle_check.Unreadable) ->
+    Loaded(value: Malformed) -> layout.dim(subject <> " doesn't contain a DID")
+    Loaded(value: Absent) -> layout.dim(subject <> " not found")
+    Loaded(value: Unreadable) ->
       layout.dim(subject <> " can't be read from a browser")
   }
 }
@@ -873,27 +875,39 @@ fn view_domain_setup(form: HandleForm, did: String) -> Element(Message) {
 fn view_email(
   verification: Verification,
   form: EmailForm,
-  account: Account,
+  account: Remote(Account),
 ) -> Element(Message) {
-  let address = option.unwrap(account.email, "")
+  let unverified = case account {
+    Loaded(value: tranquil.Account(email_verified: False, email:, ..)) ->
+      Ok(option.unwrap(email, ""))
+    Loaded(value: tranquil.Account(email_verified: True, ..))
+    | Loading
+    | Failed(_) -> Error(Nil)
+  }
 
   layout.block([
     layout.row(
       tone: layout.Plain,
       name: "Email",
       details: [
-        html.text(address <> " "),
-        layout.dim(case account.email_verified, verification.resending {
-          True, _ -> "\u{00B7} verified"
-          False, Resent -> "\u{00B7} not verified \u{00B7} code sent"
-          False, ResendRefused(_) ->
-            "\u{00B7} not verified \u{00B7} couldn't send a code"
-          False, NotResent | False, Resending -> "\u{00B7} not verified"
-        }),
+        {
+          use account <- layout.value(account)
+
+          element.fragment([
+            html.text(option.unwrap(account.email, "") <> " "),
+            layout.dim(case account.email_verified, verification.resending {
+              True, _ -> "\u{00B7} verified"
+              False, Resent -> "\u{00B7} not verified \u{00B7} code sent"
+              False, ResendRefused(_) ->
+                "\u{00B7} not verified \u{00B7} couldn't send a code"
+              False, NotResent | False, Resending -> "\u{00B7} not verified"
+            }),
+          ])
+        },
       ],
-      actions: case account.email_verified {
-        True -> []
-        False -> [
+      actions: case unverified {
+        Error(Nil) -> []
+        Ok(_) -> [
           html.button(
             [
               attribute.class("action"),
@@ -905,9 +919,9 @@ fn view_email(
         ]
       },
     ),
-    case account.email_verified {
-      True -> element.none()
-      False ->
+    case unverified {
+      Error(Nil) -> element.none()
+      Ok(address) ->
         html.form(
           [event.on_submit(fn(_) { UserSubmittedVerification(address) })],
           [
@@ -979,7 +993,11 @@ fn view_email(
             ]),
           ),
           layout.details_row([
-            layout.dim("Sent to " <> address),
+            {
+              use account <- layout.value(account)
+
+              layout.dim("Sent to " <> option.unwrap(account.email, ""))
+            },
           ]),
           view_refusal(form.submission),
           layout.details_row([
@@ -1004,7 +1022,7 @@ fn view_contact(
   form: ContactForm,
   server: Server,
   handle: String,
-) -> Element(Message) {
+) -> List(Element(Message)) {
   let is_sending = form.submission == Sending
   let channels = server.contact_channels
   let awaits_verification = fn(channel: Channel, username: String) {
@@ -1015,7 +1033,7 @@ fn view_contact(
     )
   }
 
-  layout.block([
+  [
     html.form([event.on_submit(fn(_) { UserSubmittedContact })], [
       layout.field(
         html.span(
@@ -1097,7 +1115,7 @@ fn view_contact(
         }
       Error(Nil) -> element.none()
     },
-  ])
+  ]
 }
 
 fn view_bot_step(
@@ -1191,4 +1209,83 @@ fn view_submit(
     ],
     [html.text(label)],
   )
+}
+
+const text_record = 16
+
+pub type Finding {
+  PointsHere
+  PointsElsewhere
+  Malformed
+  Absent
+  Unreadable
+}
+
+pub fn record_request(handle: Handle) -> Request(String) {
+  request.new()
+  |> request.set_host("cloudflare-dns.com")
+  |> request.set_path("/dns-query")
+  |> request.set_query([
+    #("name", "_atproto." <> handle.to_string(handle)),
+    #("type", "TXT"),
+  ])
+  |> request.set_header("accept", "application/dns-json")
+}
+
+fn records_decoder() -> Decoder(List(String)) {
+  let answer = {
+    use kind <- decode.field("type", decode.int)
+    use data <- decode.field("data", decode.string)
+
+    decode.success(#(kind, data))
+  }
+
+  use answers <- decode.optional_field("Answer", [], decode.list(answer))
+
+  decode.success(
+    list.filter_map(answers, fn(answer) {
+      let #(kind, data) = answer
+
+      case kind == text_record {
+        True -> Ok(string.replace(data, each: "\"", with: ""))
+        False -> Error(Nil)
+      }
+    }),
+  )
+}
+
+pub fn record_finding(
+  result: Result(Response(String), rsvp.Error(String)),
+  account: Did,
+) -> Result(Finding, Nil) {
+  use response <- result.try(result.replace_error(result, Nil))
+  use records <- result.map(
+    json.parse(response.body, records_decoder()) |> result.replace_error(Nil),
+  )
+
+  case did.from_txt_records(records) {
+    Ok(named) if named == account -> PointsHere
+    Ok(_) -> PointsElsewhere
+    Error(Nil) -> Absent
+  }
+}
+
+pub fn file_finding(
+  result: Result(Response(String), rsvp.Error(String)),
+  account: Did,
+) -> Finding {
+  case result {
+    Ok(response) ->
+      case did.from_string(string.trim(response.body)) {
+        Ok(named) if named == account -> PointsHere
+        Ok(_) -> PointsElsewhere
+        Error(Nil) -> Malformed
+      }
+    Error(rsvp.HttpError(_)) -> Absent
+    Error(rsvp.BadBody)
+    | Error(rsvp.BadUrl(_))
+    | Error(rsvp.JsonError(_))
+    | Error(rsvp.NetworkError)
+    | Error(rsvp.UnhandledResponse(_)) -> Unreadable
+  }
 }

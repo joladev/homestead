@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -5,7 +6,7 @@ import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/date
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loaded, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem, type SentMessage}
 import lustre/attribute
@@ -155,44 +156,42 @@ pub fn describe_title(message: SentMessage) -> String {
 pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("alerts", [
-      layout.block(case model.login_alerts {
-        Loading -> [layout.loading(1)]
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: enabled) -> [
-          layout.row(
-            tone: layout.Plain,
-            name: "Password sign-in",
-            details: [
-              html.text(
-                "Message me when someone signs in with only the password",
-              ),
-            ],
-            actions: [
+      layout.block([
+        layout.row(
+          tone: layout.Plain,
+          name: "Password sign-in",
+          details: [
+            html.text("Message me when someone signs in with only the password"),
+          ],
+          actions: [
+            {
+              use enabled <- layout.value(model.login_alerts)
+
               layout.switch(
                 id: "login-alerts",
                 label: "Password sign-in alert",
                 is_on: enabled,
                 is_disabled: model.saving == Saving,
                 on_pick: UserPickedLoginAlerts,
-              ),
-            ],
-          ),
-          case model.saving {
-            SaveRefused(_) -> layout.problem("The server didn't save that")
-            NotSaving | Saving -> element.none()
-          },
-        ]
-      }),
+              )
+            },
+          ],
+        ),
+        case model.saving {
+          SaveRefused(_) -> layout.problem("The server didn't save that")
+          NotSaving | Saving -> element.none()
+        },
+      ]),
     ]),
     layout.section("language", [
-      layout.block(case model.language {
-        Loading -> [layout.loading(1)]
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: language) -> [
-          layout.row(
-            tone: layout.Plain,
-            name: "Messages",
-            details: [
+      layout.block([
+        layout.row(
+          tone: layout.Plain,
+          name: "Messages",
+          details: [
+            {
+              use language <- layout.value(model.language)
+
               layout.select(
                 id: "language",
                 label: "Language of messages",
@@ -200,26 +199,28 @@ pub fn view(model: Model) -> Element(Message) {
                 picked: option.unwrap(language, default_language),
                 is_disabled: model.saving_language == Saving,
                 on_pick: UserPickedLanguage,
-              ),
-            ],
-            actions: [],
-          ),
-          case model.saving_language {
-            SaveRefused(_) -> layout.problem("The server didn't save that")
-            NotSaving | Saving -> element.none()
-          },
-        ]
-      }),
+              )
+            },
+          ],
+          actions: [],
+        ),
+        case model.saving_language {
+          SaveRefused(_) -> layout.problem("The server didn't save that")
+          NotSaving | Saving -> element.none()
+        },
+      ]),
     ]),
     layout.section("messages", [
-      layout.block(case model.messages {
-        Loading -> [layout.loading(3)]
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: []) -> [layout.note("No messages", [])]
-        Loaded(value: messages) ->
-          list.index_map(messages, fn(message, index) {
-            view_message(model, message, index)
-          })
+      layout.block({
+        use messages <- layout.rows(model.messages, placeholders: 3)
+
+        layout.listing(
+          empty: "No messages",
+          rows: list.index_map(messages, fn(message, index) {
+            #(int.to_string(index), view_message(model, message, index))
+          }),
+          actions: [],
+        )
       }),
     ]),
   ])

@@ -3,7 +3,7 @@ import at/handle
 import gleam/dict
 import gleam/option.{None, Some}
 import gleam/time/timestamp.{type Timestamp}
-import homestead/label.{Active, Expired, Label, Page, Removed, Service}
+import homestead/labels.{Active, Expired, Label, Page, Removed, Service}
 
 fn at(text: String) -> Timestamp {
   let assert Ok(time) = timestamp.parse_rfc3339(text)
@@ -25,7 +25,7 @@ pub fn a_page_of_labels_keeps_count_of_the_ones_it_cannot_read_test() {
        \"cts\":\"2026-04-28T06:48:26.030Z\",\"exp\":\"2026-05-05T06:48:26.030Z\"},
       {\"src\":\"did:plc:ar7c4by46qjdydhdevvrndac\",\"val\":\"no subject\"}]}"
 
-  let assert Ok(Page(events: [event], unreadable:, next:)) = label.read(body)
+  let assert Ok(Page(events: [event], unreadable:, next:)) = labels.read(body)
 
   assert event.labeler == labeler()
   assert event.value == "spam"
@@ -37,7 +37,7 @@ pub fn a_page_of_labels_keeps_count_of_the_ones_it_cannot_read_test() {
 
 pub fn a_removal_closes_the_label_it_removes_test() {
   let event = fn(value, time, expires, is_removal) {
-    label.Event(
+    labels.Event(
       labeler: labeler(),
       subject: "did:plc:ewvi7nxzyoun6zhxrhs64oiz",
       value:,
@@ -48,7 +48,7 @@ pub fn a_removal_closes_the_label_it_removes_test() {
   }
   let found = fn(value, state) { Label(labeler: labeler(), value:, state:) }
 
-  assert label.history(
+  assert labels.history(
       [
         event("spam", "2026-01-01T00:00:00Z", None, False),
         event("spam", "2026-02-01T00:00:00Z", None, True),
@@ -88,7 +88,7 @@ pub fn a_labeler_service_carries_its_handle_image_and_label_names_test() {
        \"policies\":{\"labelValues\":[\"spam\"]}}]}"
   let assert Ok(handle) = handle.from_string("moderation.bsky.app")
 
-  assert label.read_services(body)
+  assert labels.read_services(body)
     == Ok([
       Service(
         labeler: labeler(),

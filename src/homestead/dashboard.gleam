@@ -97,10 +97,6 @@ pub fn init(
 }
 
 pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
-  use <- bool.guard(route == model.route, #(
-    Model(..model, is_menu_open: False),
-    effect.none(),
-  ))
   use <- bool.guard(is_closed(route, model.account), #(model, show_overview()))
   let #(page, effect) = open(model.session, model.directory, route)
 

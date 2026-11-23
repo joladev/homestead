@@ -294,17 +294,6 @@ h3 {
     padding: var(--space-1) 0;
 }
 
-.loading {
-    opacity: 0;
-    animation: loading-appear 0s linear 200ms forwards;
-}
-
-.loading.heading {
-    display: flex;
-    align-items: center;
-    min-height: var(--control);
-}
-
 .bar {
     display: block;
     height: 12px;
@@ -328,20 +317,10 @@ h3 {
     width: min(240px, 45%);
 }
 
-.loading.heading .bar {
-    width: 140px;
-}
-
 .bar.pending {
     display: inline-block;
     width: 160px;
     vertical-align: middle;
-}
-
-@keyframes loading-appear {
-    to {
-        opacity: 1;
-    }
 }
 
 @keyframes loading-pulse {

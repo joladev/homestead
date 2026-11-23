@@ -247,11 +247,16 @@ pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
-        case model.passkeys {
-          Loading -> [layout.loading(1)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.note("No passkeys", [])]
-          Loaded(value: passkeys) -> list.map(passkeys, view_passkey(_, model))
+        {
+          use passkeys <- layout.rows(model.passkeys, placeholders: 1)
+
+          layout.listing(
+            empty: "No passkeys",
+            rows: list.map(passkeys, fn(item) {
+              #(item.id, view_passkey(item, model))
+            }),
+            actions: [],
+          )
         },
         case model.action {
           Refused(_) -> [layout.problem("The server didn't accept that")]

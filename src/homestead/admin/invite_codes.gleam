@@ -6,7 +6,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loaded, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type InviteCode, type Problem}
 import lustre/attribute
@@ -170,35 +170,32 @@ fn can_be_used(code: InviteCode) -> Bool {
 }
 
 pub fn view_actions(model: Model) -> List(Element(Message)) {
-  case model.codes {
-    Loaded(_) -> [
-      html.button(
-        [
-          attribute.id(new_button_id),
-          attribute.class("action"),
-          attribute.disabled(model.action == Creating),
-          event.on_click(UserClickedNew),
-        ],
-        [html.text("New code")],
-      ),
-    ]
-    Loading | Failed(_) -> []
-  }
+  [
+    html.button(
+      [
+        attribute.id(new_button_id),
+        attribute.class("action"),
+        attribute.disabled(model.action == Creating),
+        event.on_click(UserClickedNew),
+      ],
+      [html.text("New code")],
+    ),
+  ]
 }
 
 pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
-        case model.codes {
-          Loading -> [layout.loading(3)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: codes) ->
-            layout.listing(
-              empty: "No invite codes",
-              rows: list.map(codes, view_code(_, model)),
-              actions: [],
-            )
+        {
+          use codes <- layout.rows(model.codes, placeholders: 3)
+          layout.listing(
+            empty: "No invite codes",
+            rows: list.map(codes, fn(item) {
+              #(item.code, view_code(item, model))
+            }),
+            actions: [],
+          )
         },
         case model.action {
           Refused(_) -> [layout.problem("The server didn't accept that")]

@@ -299,15 +299,15 @@ pub fn view(
   [
     layout.block(
       list.flatten([
-        case model.controllers {
-          Loading -> [layout.loading(1)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: controllers) ->
-            layout.listing(
-              empty: "No controllers",
-              rows: list.map(controllers, view_controller(_, model, levels)),
-              actions: [],
-            )
+        {
+          use controllers <- layout.rows(model.controllers, placeholders: 1)
+          layout.listing(
+            empty: "No controllers",
+            rows: list.map(controllers, fn(item) {
+              #(item.did, view_controller(item, model, levels))
+            }),
+            actions: [],
+          )
         },
         case model.action, controls_accounts {
           Adding(identifier:, lookup:, level:, is_adding:), _ ->
@@ -351,7 +351,7 @@ fn view_controller(
         tone: layout.Plain,
         name:,
         details: [
-          html.text(access.describe(levels, controller.access) <> " "),
+          access.view_level(levels, controller.access),
           layout.dim(string.join(
             list.flatten([
               [

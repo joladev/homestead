@@ -7,7 +7,7 @@ import homestead/confirmation
 import homestead/date
 import homestead/layout
 import homestead/permissions.{type Preset, FullAccess}
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type AppPassword, type Problem}
 import lustre/attribute
@@ -212,8 +212,8 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section_with_actions(
       "app-passwords",
-      case model.passwords, model.creation {
-        Loaded(_), NotCreating -> [
+      case model.creation {
+        NotCreating -> [
           html.button(
             [
               attribute.id(new_button_id),
@@ -223,23 +223,21 @@ pub fn view(model: Model) -> Element(Message) {
             [html.text("New app password")],
           ),
         ]
-        Loading, _
-        | Failed(_), _
-        | Loaded(_), Composing
-        | Loaded(_), Creating
-        | Loaded(_), CreationRefused(_)
-        | Loaded(_), Created(..)
-        -> []
+        Composing | Creating | CreationRefused(_) | Created(..) -> []
       },
       [
         layout.block(
           list.flatten([
-            case model.passwords {
-              Loading -> [layout.loading(3)]
-              Failed(_) -> [layout.problem("Couldn't load")]
-              Loaded(value: []) -> [layout.note("No app passwords", [])]
-              Loaded(value: passwords) ->
-                list.map(passwords, view_password(_, model))
+            {
+              use passwords <- layout.rows(model.passwords, placeholders: 3)
+
+              layout.listing(
+                empty: "No app passwords",
+                rows: list.map(passwords, fn(item) {
+                  #(item.name, view_password(item, model))
+                }),
+                actions: [],
+              )
             },
             case model.revoking {
               RevokeRefused(_) -> [

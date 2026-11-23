@@ -552,33 +552,38 @@ fn view_new_link(collection: String) -> Element(Message) {
 }
 
 fn view_collections(collections: Remote(List(String))) -> Element(Message) {
-  layout.block(case collections {
-    Loading -> [layout.loading(3)]
-    Failed(_) -> [layout.problem("Couldn't load")]
-    Loaded(value: []) -> [layout.note("No collections", [])]
-    Loaded(value: collections) ->
-      list.map(group_collections(collections), fn(group) {
-        layout.row(
-          tone: layout.Plain,
-          name: group.owner,
-          details: [
-            html.span(
-              [attribute.class("lines collections")],
-              list.map(group.collections, fn(collection) {
-                html.a(
-                  [
-                    route.href(
-                      Data(Repository(Records(collection: collection.id))),
-                    ),
-                  ],
-                  [layout.dim(collection.prefix), html.text(collection.name)],
-                )
-              }),
-            ),
-          ],
-          actions: [],
+  layout.block({
+    use collections <- layout.rows(collections, placeholders: 3)
+
+    layout.listing(
+      empty: "No collections",
+      rows: list.map(group_collections(collections), fn(group) {
+        #(
+          group.owner,
+          layout.row(
+            tone: layout.Plain,
+            name: group.owner,
+            details: [
+              html.span(
+                [attribute.class("lines collections")],
+                list.map(group.collections, fn(collection) {
+                  html.a(
+                    [
+                      route.href(
+                        Data(Repository(Records(collection: collection.id))),
+                      ),
+                    ],
+                    [layout.dim(collection.prefix), html.text(collection.name)],
+                  )
+                }),
+              ),
+            ],
+            actions: [],
+          ),
         )
-      })
+      }),
+      actions: [],
+    )
   })
 }
 
@@ -623,13 +628,13 @@ fn view_records(
 ) -> Element(Message) {
   layout.block(
     list.flatten([
-      case records {
-        Loading -> [layout.loading(3)]
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: records) ->
-          layout.listing(
-            empty: "No records",
-            rows: list.map(records, fn(record) {
+      {
+        use records <- layout.rows(records, placeholders: 3)
+        layout.listing(
+          empty: "No records",
+          rows: list.map(records, fn(record) {
+            #(
+              record.key,
               html.a(
                 [
                   attribute.class("row record"),
@@ -655,22 +660,23 @@ fn view_records(
                     ]),
                   ]),
                 ],
-              )
-            }),
-            actions: case next {
-              Some(after) -> [
-                html.button(
-                  [
-                    attribute.class("action"),
-                    attribute.disabled(more == LoadingMore),
-                    event.on_click(UserClickedMore(after)),
-                  ],
-                  [html.text("More")],
-                ),
-              ]
-              None -> []
-            },
-          )
+              ),
+            )
+          }),
+          actions: case next {
+            Some(after) -> [
+              html.button(
+                [
+                  attribute.class("action"),
+                  attribute.disabled(more == LoadingMore),
+                  event.on_click(UserClickedMore(after)),
+                ],
+                [html.text("More")],
+              ),
+            ]
+            None -> []
+          },
+        )
       },
       case more {
         MoreRefused(_) -> [layout.problem("Couldn't load more")]
@@ -688,10 +694,9 @@ fn view_record(
   copied: Copied,
   local_offset: Duration,
 ) -> Element(Message) {
-  layout.block(case record {
-    Loading -> [layout.loading(3)]
-    Failed(_) -> [layout.problem("Couldn't load")]
-    Loaded(value: record) -> [
+  layout.block({
+    use record <- layout.rows(record, placeholders: 3)
+    [
       case action {
         ConfirmingDelete ->
           confirmation.view(

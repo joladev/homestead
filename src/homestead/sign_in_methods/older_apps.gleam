@@ -119,15 +119,15 @@ fn save(session: Session, allowed: Bool) -> Effect(Message) {
 
 pub fn view(model: Model) -> List(Element(Message)) {
   [
-    layout.block(case model.preference {
-      Loading -> [layout.loading(1)]
-      Failed(_) -> [layout.problem("Couldn't load")]
-      Loaded(value: preference) -> [
-        layout.row(
-          tone: layout.Plain,
-          name: "Password only",
-          details: [html.text("Let apps sign in with only the password")],
-          actions: [
+    layout.block([
+      layout.row(
+        tone: layout.Plain,
+        name: "Password only",
+        details: [html.text("Let apps sign in with only the password")],
+        actions: [
+          {
+            use preference <- layout.value(model.preference)
+
             layout.switch(
               id: switch_id,
               label: "Password-only sign-in",
@@ -137,15 +137,15 @@ pub fn view(model: Model) -> List(Element(Message)) {
                 Resting | Refused(_) -> False
               },
               on_pick: UserPickedAllowed,
-            ),
-          ],
-        ),
-        case model.action {
-          Refused(_) -> layout.problem("The server didn't save that")
-          Resting | Saving(_) | SigningInAgain(..) -> element.none()
-        },
-      ]
-    }),
+            )
+          },
+        ],
+      ),
+      case model.action {
+        Refused(_) -> layout.problem("The server didn't save that")
+        Resting | Saving(_) | SigningInAgain(..) -> element.none()
+      },
+    ]),
     case model.action {
       SigningInAgain(reauth:, ..) ->
         reauth.view(reauth) |> element.map(ReauthProducedMessage)

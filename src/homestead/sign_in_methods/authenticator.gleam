@@ -4,7 +4,7 @@ import gleam/string
 import homestead/browser
 import homestead/dialog
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{
   type Authenticator, type AuthenticatorSetup, type Problem,
@@ -314,21 +314,23 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model) -> List(Element(Message)) {
+  let status = fn(is_preparing: Bool) {
+    use status <- layout.awaited_row(name: "Authenticator", of: model.status)
+
+    view_status(status, is_preparing)
+  }
+
   [
-    layout.block(case model.status, model.action {
-      Loading, _ -> [layout.loading(1)]
-      Failed(_), _ -> [layout.problem("Couldn't load")]
-      Loaded(_), Scanning(setup:, code:, submission:) ->
+    layout.block(case model.action {
+      Scanning(setup:, code:, submission:) ->
         view_setup(setup, code, submission)
-      Loaded(_), ShowingCodes(codes:, copying:) -> view_codes(codes, copying)
-      Loaded(value: status), Refused(problem:) -> [
-        view_status(status, False),
+      ShowingCodes(codes:, copying:) -> view_codes(codes, copying)
+      Refused(problem:) -> [
+        status(False),
         layout.problem(describe_refusal(problem)),
       ]
-      Loaded(value: status), Preparing -> [view_status(status, True)]
-      Loaded(value: status), Resting | Loaded(value: status), Checking(..) -> [
-        view_status(status, False),
-      ]
+      Preparing -> [status(True)]
+      Resting | Checking(..) -> [status(False)]
     }),
     case model.action {
       Checking(purpose:, password:, code:, submission:) ->

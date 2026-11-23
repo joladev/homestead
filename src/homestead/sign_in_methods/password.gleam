@@ -2,7 +2,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/layout
 import homestead/reauth
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem}
 import lustre/attribute
@@ -289,19 +289,25 @@ pub fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model, has_passkey: Bool) -> List(Element(Message)) {
-  [
-    layout.block(case model.has_password, model.action {
-      Loading, _ -> [layout.loading(1)]
-      Failed(_), _ -> [layout.problem("Couldn't load")]
+  let status = fn(is_changed: Bool) {
+    use has_password <- layout.awaited_row(
+      name: "Password",
+      of: model.has_password,
+    )
 
-      Loaded(_), Changing(current:, new:, submission:) ->
+    view_status(has_password, has_passkey, is_changed)
+  }
+
+  [
+    layout.block(case model.action {
+      Changing(current:, new:, submission:) ->
         view_change(current, new, submission)
 
-      Loaded(_), Setting(new:, submission:) -> view_set(new, submission)
-      Loaded(_), SigningInAgain(pending: SettingPassword(new:), ..) ->
+      Setting(new:, submission:) -> view_set(new, submission)
+      SigningInAgain(pending: SettingPassword(new:), ..) ->
         view_set(new, Sending)
 
-      Loaded(_), ConfirmingRemove -> [
+      ConfirmingRemove -> [
         confirmation.view(
           question: "Remove?",
           consequence: "Only your passkeys will sign you in.",
@@ -311,20 +317,16 @@ pub fn view(model: Model, has_passkey: Bool) -> List(Element(Message)) {
         ),
       ]
 
-      Loaded(value: has_password), Refused(problem:) -> [
-        view_status(has_password, has_passkey, False),
+      Refused(problem:) -> [
+        status(False),
         layout.problem(describe_refusal(problem)),
       ]
 
-      Loaded(value: has_password), Changed -> [
-        view_status(has_password, has_passkey, True),
-      ]
+      Changed -> [status(True)]
 
-      Loaded(value: has_password), Resting
-      | Loaded(value: has_password), Removing
-      | Loaded(value: has_password),
-        SigningInAgain(pending: RemovingPassword, ..)
-      -> [view_status(has_password, has_passkey, False)]
+      Resting | Removing | SigningInAgain(pending: RemovingPassword, ..) -> [
+        status(False),
+      ]
     }),
     case model.action {
       SigningInAgain(reauth:, ..) ->

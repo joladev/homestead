@@ -5,7 +5,7 @@ import gleam/uri.{Uri}
 import homestead/browser
 import homestead/confirmation
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Failed, Loading}
 import homestead/session.{type Departure, type Session}
 import homestead/sessions
 import homestead/tranquil.{type Problem, type RememberedApp}
@@ -149,19 +149,19 @@ pub fn view(model: Model) -> Element(Message) {
     case model.remembered {
       NotSupported | Remembered(apps: Loading) -> element.none()
 
-      Remembered(apps: Failed(_)) ->
+      Remembered(apps:) ->
         layout.section("remembered", [
-          layout.block([layout.problem("Couldn't load")]),
-        ])
+          layout.block({
+            use apps <- layout.rows(apps, placeholders: 1)
 
-      Remembered(apps: Loaded(value: [])) ->
-        layout.section("remembered", [
-          layout.block([layout.note("No remembered apps", [])]),
-        ])
-
-      Remembered(apps: Loaded(value: apps)) ->
-        layout.section("remembered", [
-          layout.block(list.map(apps, view_app(_, model.forgetting))),
+            layout.listing(
+              empty: "No remembered apps",
+              rows: list.map(apps, fn(item) {
+                #(item.client_id, view_app(item, model.forgetting))
+              }),
+              actions: [],
+            )
+          }),
         ])
     },
   ])

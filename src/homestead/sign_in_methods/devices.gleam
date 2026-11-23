@@ -7,7 +7,7 @@ import homestead/browser
 import homestead/confirmation
 import homestead/date
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem, type RememberedDevice}
 import lustre/attribute
@@ -187,11 +187,16 @@ pub fn view(model: Model) -> List(Element(Message)) {
   [
     layout.block(
       list.flatten([
-        case model.devices {
-          Loading -> [layout.loading(1)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: []) -> [layout.note("No remembered devices", [])]
-          Loaded(value: devices) -> list.map(devices, view_device(_, model))
+        {
+          use devices <- layout.rows(model.devices, placeholders: 1)
+
+          layout.listing(
+            empty: "No remembered devices",
+            rows: list.map(devices, fn(item) {
+              #(item.id, view_device(item, model))
+            }),
+            actions: [],
+          )
         },
         case model.action {
           Refused(_) -> [layout.problem("The server didn't accept that")]

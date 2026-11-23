@@ -1,9 +1,12 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/tranquil.{type Problem}
 import lustre/attribute.{type Attribute}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/keyed
 import lustre/event
 
 pub type Tone {
@@ -106,13 +109,72 @@ pub fn loading(rows: Int) -> Element(message) {
   )
 }
 
-pub fn loading_section() -> Element(message) {
-  html.section([], [
-    html.div([attribute.class("loading heading")], [
-      html.span([attribute.class("bar")], []),
-    ]),
-    block([loading(3)]),
-  ])
+pub fn value(
+  of remote: Remote(value),
+  with view: fn(value) -> Element(message),
+) -> Element(message) {
+  case remote {
+    Loading -> pending()
+    Loaded(value:) -> view(value)
+    Failed(problem:) ->
+      html.span([attribute.class("failure")], [
+        html.text(tranquil.describe_failed_load(problem) <> " "),
+        try_again(),
+      ])
+  }
+}
+
+pub fn rows(
+  of remote: Remote(value),
+  placeholders placeholders: Int,
+  with view: fn(value) -> List(Element(message)),
+) -> List(Element(message)) {
+  case remote {
+    Loading -> [loading(placeholders)]
+    Loaded(value:) -> view(value)
+    Failed(problem:) -> [failure(problem)]
+  }
+}
+
+pub fn awaited_row(
+  name name: String,
+  of remote: Remote(value),
+  with view: fn(value) -> Element(message),
+) -> Element(message) {
+  case remote {
+    Loading -> row(tone: Plain, name:, details: [pending()], actions: [])
+    Loaded(value:) -> view(value)
+    Failed(problem:) ->
+      row(
+        tone: Warning,
+        name:,
+        details: [html.text(tranquil.describe_failed_load(problem))],
+        actions: [try_again()],
+      )
+  }
+}
+
+pub fn fields(
+  of remote: Remote(value),
+  with view: fn(Remote(value)) -> List(Element(message)),
+) -> List(Element(message)) {
+  case remote {
+    Loading | Loaded(_) -> view(remote)
+    Failed(problem:) -> [failure(problem)]
+  }
+}
+
+pub fn failure(problem: Problem) -> Element(message) {
+  row(
+    tone: Warning,
+    name: "error",
+    details: [html.text(tranquil.describe_failed_load(problem))],
+    actions: [try_again()],
+  )
+}
+
+fn try_again() -> Element(message) {
+  html.a([attribute.href("")], [html.text("Try again")])
 }
 
 pub fn pending() -> Element(message) {
@@ -220,13 +282,13 @@ pub fn note(text: String, actions: List(Element(message))) -> Element(message) {
 
 pub fn listing(
   empty empty: String,
-  rows rows: List(Element(message)),
+  rows rows: List(#(String, Element(message))),
   actions actions: List(Element(message)),
 ) -> List(Element(message)) {
   case rows, actions {
     [], _ -> [note(empty, actions)]
-    [_, ..], [] -> rows
-    [_, ..], [_, ..] -> list.append(rows, [actions_row(actions)])
+    [_, ..], [] -> [keyed.fragment(rows)]
+    [_, ..], [_, ..] -> [keyed.fragment(rows), actions_row(actions)]
   }
 }
 

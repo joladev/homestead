@@ -4,7 +4,7 @@ import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/date
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type LogEntry, type LogPage, type Problem}
 import lustre/attribute
@@ -104,49 +104,54 @@ pub fn view(
   names: List(#(String, String)),
 ) -> List(Element(Message)) {
   [
-    layout.block(case model.entries {
-      Loading -> [layout.loading(3)]
-      Failed(_) -> [layout.problem("Couldn't load")]
-      Loaded(value: []) -> [layout.note("No entries", [])]
-      Loaded(value: entries) ->
-        list.flatten([
-          list.map(entries, fn(entry) {
-            layout.row(
-              tone: layout.Plain,
-              name: date.describe_moment(entry.at, model.local_offset),
-              details: [
-                html.text(describe_action(entry.action) <> " "),
-                layout.dim(
-                  "\u{00B7} by "
-                  <> result.unwrap(
-                    list.key_find(names, entry.actor),
-                    entry.actor,
+    layout.block({
+      use entries <- layout.rows(model.entries, placeholders: 3)
+
+      list.flatten([
+        layout.listing(
+          empty: "No entries",
+          rows: list.map(entries, fn(entry) {
+            #(
+              entry.id,
+              layout.row(
+                tone: layout.Plain,
+                name: date.describe_moment(entry.at, model.local_offset),
+                details: [
+                  html.text(describe_action(entry.action) <> " "),
+                  layout.dim(
+                    "\u{00B7} by "
+                    <> result.unwrap(
+                      list.key_find(names, entry.actor),
+                      entry.actor,
+                    ),
                   ),
-                ),
-              ],
-              actions: [],
+                ],
+                actions: [],
+              ),
             )
           }),
-          case model.more {
-            MoreRefused(_) -> [layout.problem("Couldn't load more")]
-            NotLoadingMore | LoadingMore -> []
-          },
-          case list.length(entries) < model.total {
-            True -> [
-              layout.actions_row([
-                html.button(
-                  [
-                    attribute.class("action"),
-                    attribute.disabled(model.more == LoadingMore),
-                    event.on_click(UserClickedMore(list.length(entries))),
-                  ],
-                  [html.text("More")],
-                ),
-              ]),
-            ]
-            False -> []
-          },
-        ])
+          actions: [],
+        ),
+        case model.more {
+          MoreRefused(_) -> [layout.problem("Couldn't load more")]
+          NotLoadingMore | LoadingMore -> []
+        },
+        case list.length(entries) < model.total {
+          True -> [
+            layout.actions_row([
+              html.button(
+                [
+                  attribute.class("action"),
+                  attribute.disabled(model.more == LoadingMore),
+                  event.on_click(UserClickedMore(list.length(entries))),
+                ],
+                [html.text("More")],
+              ),
+            ]),
+          ]
+          False -> []
+        },
+      ])
     }),
   ]
 }

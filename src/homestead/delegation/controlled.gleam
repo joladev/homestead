@@ -274,15 +274,15 @@ pub fn view(
   [
     layout.block(
       list.flatten([
-        case model.accounts {
-          Loading -> [layout.loading(1)]
-          Failed(_) -> [layout.problem("Couldn't load")]
-          Loaded(value: accounts) ->
-            layout.listing(
-              empty: "No controlled accounts",
-              rows: list.map(accounts, view_account(_, model, levels)),
-              actions: [],
-            )
+        {
+          use accounts <- layout.rows(model.accounts, placeholders: 1)
+          layout.listing(
+            empty: "No controlled accounts",
+            rows: list.map(accounts, fn(item) {
+              #(item.did, view_account(item, model, levels))
+            }),
+            actions: [],
+          )
         },
         case model.action, has_controllers {
           Creating(handle:, email:, level:, submission:), _ -> [
@@ -339,7 +339,7 @@ fn view_account(
         tone: layout.Plain,
         name:,
         details: [
-          html.text(access.describe(levels, account.access) <> " "),
+          access.view_level(levels, account.access),
           layout.dim(
             "\u{00B7} since "
             <> date.describe(account.since, model.local_offset),

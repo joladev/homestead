@@ -7,7 +7,7 @@ import homestead/admin/invite_codes
 import homestead/admin/server_page
 import homestead/admin/signal
 import homestead/layout
-import homestead/remote.{type Remote, Failed, Loaded, Loading}
+import homestead/remote.{type Remote, Loading}
 import homestead/session.{type Session}
 import homestead/tranquil.{type Problem, type ServerTotals}
 import lustre/effect.{type Effect}
@@ -112,10 +112,10 @@ pub fn describe_size(bytes: Int) -> String {
 pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("server", [
-      layout.block(case model.totals {
-        Loading -> [layout.loading(1)]
-        Failed(_) -> [layout.problem("Couldn't load")]
-        Loaded(value: totals) -> [
+      layout.block([
+        {
+          use totals <- layout.awaited_row(name: "Totals", of: model.totals)
+
           layout.row(
             tone: layout.Plain,
             name: "Totals",
@@ -131,9 +131,9 @@ pub fn view(model: Model) -> Element(Message) {
               )),
             ],
             actions: [],
-          ),
-        ]
-      }),
+          )
+        },
+      ]),
     ]),
     layout.section("accounts", [
       map(accounts.view(model.accounts), AccountsProducedMessage),

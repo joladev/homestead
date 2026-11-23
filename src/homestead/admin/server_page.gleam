@@ -157,10 +157,9 @@ pub fn describe_refusal(problem: Problem) -> String {
 
 pub fn view(model: Model) -> List(Element(Message)) {
   [
-    layout.block(case model.form {
-      Loading -> [layout.loading(3)]
-      Failed(_) -> [layout.problem("Couldn't load")]
-      Loaded(value: form) -> [view_form(form, model.submission)]
+    layout.block({
+      use form <- layout.rows(model.form, placeholders: 3)
+      [view_form(form, model.submission)]
     }),
   ]
 }
