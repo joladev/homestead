@@ -313,7 +313,13 @@ fn view_passkey(passkey: Passkey, model: Model) -> Element(Message) {
         on_accept: UserConfirmedDelete(passkey),
       )
 
-    _ ->
+    Resting
+    | Renaming(..)
+    | SavingName(..)
+    | ConfirmingDelete(_)
+    | Deleting(_)
+    | SigningInAgain(..)
+    | Refused(_) ->
       layout.row(
         tone: layout.Plain,
         name: describe_name(passkey),

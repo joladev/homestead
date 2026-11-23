@@ -246,7 +246,12 @@ fn view_device(device: RememberedDevice, model: Model) -> Element(Message) {
         on_accept: UserConfirmedForget(device),
       )
 
-    _ ->
+    Resting
+    | Renaming(..)
+    | SavingName(..)
+    | ConfirmingForget(_)
+    | Forgetting
+    | Refused(_) ->
       layout.row(
         tone: layout.Plain,
         name: describe_name(device),
