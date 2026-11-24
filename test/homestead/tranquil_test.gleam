@@ -1,15 +1,18 @@
 import at/did.{type Did}
 import at/handle
+import gleam/http
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import gleam/time/timestamp
 import homestead/tranquil.{
   Account, ActiveSession, AuthenticatorCode, ChannelUsername, ContactPreferences,
-  Discord, Email, LinkedAccount, LogEntry, LogPage, MediaPage, OtherChannel,
+  Discord, Email, LinkedAccount, LogEntry, LogPage, MediaPage, NeedsApproval,
+  NeedsAuthenticatorCode, NeedsSentCode, NeedsVerification, OtherChannel,
   OtherSoftware, Passkey, Password, RecordPage, RememberedApp, RepoRecord, Sent,
-  SentMessage, Server, Signal, Telegram, Tranquil,
+  SentMessage, Server, Signal, SignedIn, Telegram, Tranquil,
 }
 
 pub fn a_tranquil_health_answer_gives_its_version_test() {
@@ -101,6 +104,9 @@ pub fn a_server_without_contact_channels_offers_email_test() {
       discord_bot: None,
       discord_app_id: None,
       telegram_bot: None,
+      invite_required: False,
+      privacy_policy: None,
+      terms_of_service: None,
     ))
 }
 
@@ -271,4 +277,55 @@ fn account() -> Did {
   let assert Ok(account) = did.from_string("did:plc:k4q7m2x3vt5hwz6r2ypbn7cs")
 
   account
+}
+
+pub fn a_server_describes_what_signing_up_needs_test() {
+  let assert Ok(server) =
+    tranquil.parse(
+      tranquil.server(),
+      "{\"inviteCodeRequired\":true,\"links\":{\"privacyPolicy\":\"https://harbor.example/privacy\"}}",
+    )
+
+  assert server.invite_required
+  assert server.privacy_policy == Some("https://harbor.example/privacy")
+  assert server.terms_of_service == None
+}
+
+pub fn a_bare_server_name_becomes_a_secure_address_test() {
+  let assert Ok(server) = tranquil.server_address(" harbor.example ")
+
+  assert server.scheme == http.Https
+  assert tranquil.server_name(server) == "harbor.example"
+}
+
+pub fn a_full_address_keeps_its_scheme_and_drops_its_path_test() {
+  let assert Ok(server) = tranquil.server_address("http://localhost:3000/app")
+
+  assert server.scheme == http.Http
+  assert tranquil.server_name(server) == "localhost:3000"
+  assert server.path == ""
+}
+
+pub fn nothing_typed_is_not_an_address_test() {
+  assert tranquil.server_address("  ") == Error(Nil)
+}
+
+pub fn a_sign_in_answer_names_the_next_step_test() {
+  let step = fn(body) { json.parse(body, tranquil.sign_in_step_decoder()) }
+  let assert Ok(SignedIn(continue:)) =
+    step(
+      "{\"redirect_uri\":\"https://harbor.example/oauth/authorize/redirect?code=abc\"}",
+    )
+
+  assert continue.host == Some("harbor.example")
+  assert step(
+      "{\"redirect_uri\":\"/app/oauth/consent?request_uri=urn%3Aexample\"}",
+    )
+    == Ok(NeedsApproval)
+  assert step("{\"needs_totp\":true}") == Ok(NeedsAuthenticatorCode)
+  assert step("{\"needs_2fa\":true,\"channel\":\"email\"}")
+    == Ok(NeedsSentCode(channel: "email"))
+  assert step("{\"error\":\"account_not_verified\",\"channel\":\"email\"}")
+    == Ok(NeedsVerification(channel: Email))
+  assert step("{\"error\":\"access_denied\"}") |> result.is_error
 }

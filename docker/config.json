@@ -5,5 +5,7 @@
   "constellation": "{{env "HOMESTEAD_CONSTELLATION"}}",
   "appview": "{{env "HOMESTEAD_APPVIEW"}}",
   "labelRelay": "{{env "HOMESTEAD_LABEL_RELAY"}}",
-  "dns": "{{env "HOMESTEAD_DNS"}}"
+  "dns": "{{env "HOMESTEAD_DNS"}}",
+  "signUpServers": "{{env "HOMESTEAD_SIGNUP_SERVERS"}}",
+  "passwordEntry": "{{env "HOMESTEAD_PASSWORD_ENTRY"}}"
 }

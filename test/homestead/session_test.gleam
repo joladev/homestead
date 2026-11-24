@@ -46,5 +46,15 @@ pub fn the_hosted_client_file_matches_what_the_app_sends_test() {
   assert file_scope == session.scope()
 }
 
+pub fn a_sign_in_attempt_carries_its_request_test() {
+  let assert Ok(attempt) =
+    session.attempt(
+      "https://harbor.example/oauth/authorize?client_id=app&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Aabc",
+    )
+
+  assert attempt.request == "urn:ietf:params:oauth:request_uri:abc"
+  assert attempt.server_page.host == Some("harbor.example")
+}
+
 @external(javascript, "./file_ffi.mjs", "read")
 fn read(path: String) -> String

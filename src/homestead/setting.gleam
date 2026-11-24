@@ -2,9 +2,12 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/fetch
 import gleam/http/request.{type Request}
 import gleam/javascript/promise.{type Promise}
+import gleam/list
 import gleam/option.{None}
 import gleam/result
+import gleam/string
 import gleam/uri.{type Uri, Uri}
+import homestead/tranquil
 
 pub type Settings {
   Settings(
@@ -15,7 +18,14 @@ pub type Settings {
     appview: Request(String),
     label_relay: Request(String),
     dns: Request(String),
+    sign_up_servers: List(Request(String)),
+    password_entry: PasswordEntry,
   )
+}
+
+pub type PasswordEntry {
+  ServerFirst
+  HomesteadFirst
 }
 
 pub fn load(location: Uri) -> Promise(Result(Settings, Nil)) {
@@ -51,6 +61,16 @@ pub fn decoder() -> Decoder(Settings) {
     "dns",
     at("dns10.quad9.net") |> request.set_path("/dns-query"),
   )
+  use sign_up_servers <- decode.optional_field(
+    "signUpServers",
+    [],
+    servers_decoder(),
+  )
+  use password_entry <- decode.optional_field(
+    "passwordEntry",
+    ServerFirst,
+    password_entry_decoder(),
+  )
 
   decode.success(Settings(
     directory:,
@@ -60,7 +80,33 @@ pub fn decoder() -> Decoder(Settings) {
     appview:,
     label_relay:,
     dns:,
+    sign_up_servers:,
+    password_entry:,
   ))
+}
+
+fn password_entry_decoder() -> Decoder(PasswordEntry) {
+  use name <- decode.then(decode.string)
+
+  case name {
+    "" | "server" -> decode.success(ServerFirst)
+    "homestead" -> decode.success(HomesteadFirst)
+    _ -> decode.failure(ServerFirst, "PasswordEntry")
+  }
+}
+
+fn servers_decoder() -> Decoder(List(Request(String))) {
+  use names <- decode.then(decode.string)
+  let servers =
+    string.split(names, on: ",")
+    |> list.map(string.trim)
+    |> list.filter(fn(name) { name != "" })
+    |> list.try_map(tranquil.server_address)
+
+  case servers {
+    Ok(servers) -> decode.success(servers)
+    Error(Nil) -> decode.failure([], "Servers")
+  }
 }
 
 fn at(host: String) -> Request(String) {

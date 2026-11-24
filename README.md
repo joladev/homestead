@@ -43,15 +43,18 @@ gleam run -m lustre/dev build --minify
 
 You can run your own Homestead! Feel free to fork and make the design your own, or use it as is. All the dependencies can be configured with environment variables:
 
-| Variable                  | Default                                |
-| ------------------------- | -------------------------------------- |
-| `HOMESTEAD_PLC`           | `https://plc.directory`                |
-| `HOMESTEAD_TYPEAHEAD`     | `https://typeahead.cove.town`          |
-| `HOMESTEAD_SLINGSHOT`     | `https://slingshot.cove.town`          |
-| `HOMESTEAD_CONSTELLATION` | `https://constellation.microcosm.blue` |
-| `HOMESTEAD_APPVIEW`       | `https://public.api.bsky.app`          |
-| `HOMESTEAD_LABEL_RELAY`   | `https://labelers.firehose.stream`     |
-| `HOMESTEAD_DNS`           | `https://dns10.quad9.net/dns-query`    |
+| Variable                   | Default                                |
+| -------------------------- | -------------------------------------- |
+| `HOMESTEAD_HOST`       | none, required                         |
+| `HOMESTEAD_PLC`            | `https://plc.directory`                |
+| `HOMESTEAD_TYPEAHEAD`      | `https://typeahead.cove.town`          |
+| `HOMESTEAD_SLINGSHOT`      | `https://slingshot.cove.town`          |
+| `HOMESTEAD_CONSTELLATION`  | `https://constellation.microcosm.blue` |
+| `HOMESTEAD_APPVIEW`        | `https://public.api.bsky.app`          |
+| `HOMESTEAD_LABEL_RELAY`    | `https://labelers.firehose.stream`     |
+| `HOMESTEAD_DNS`            | `https://dns10.quad9.net/dns-query`    |
+| `HOMESTEAD_SIGNUP_SERVERS` | none                                   |
+| `HOMESTEAD_PASSWORD_ENTRY` | `server`                               |
 
 
 ## Contributing

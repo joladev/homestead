@@ -1262,6 +1262,100 @@ input:disabled {
     background: var(--attention);
 }
 
+.field > input {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.signing-in-as {
+    margin: 12px 0 0;
+    overflow-wrap: anywhere;
+}
+
+.ways {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-top: 16px;
+}
+
+.accounts .offer {
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.sign-in > div:has(> .sign-up) {
+    height: auto;
+}
+
+.sign-up > label:not(:first-child) {
+    margin-top: 18px;
+}
+
+.sign-up > input,
+.sign-up > select {
+    width: 100%;
+}
+
+.sign-up > .button {
+    margin-top: 22px;
+}
+
+.sign-up > p {
+    margin: 18px 0 0;
+}
+
+.sign-up .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.field > .domain {
+    display: flex;
+    align-items: center;
+    font-family: var(--font-code);
+    overflow-wrap: anywhere;
+}
+
+.sign-up > .requirement {
+    margin: 8px 0 0;
+    color: var(--text-dim);
+}
+
+.sign-up > .requirement.unmet {
+    color: var(--attention);
+}
+
+.rules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--space-2);
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--text-dim);
+}
+
+.rules li::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 8px;
+    border: 1px solid var(--line-strong);
+    box-sizing: border-box;
+}
+
+.rules li.met {
+    color: var(--text);
+}
+
+.rules li.met::before {
+    background: var(--good);
+    border-color: var(--good);
+}
+
 @media (max-width: 720px) {
     .top-bar {
         position: relative;

@@ -25,4 +25,19 @@ for name in HOMESTEAD_PLC HOMESTEAD_TYPEAHEAD HOMESTEAD_SLINGSHOT HOMESTEAD_CONS
   esac
 done
 
+case "${HOMESTEAD_SIGNUP_SERVERS:-}" in
+  *[!A-Za-z0-9.:/_~,\ -]*)
+    echo "HOMESTEAD_SIGNUP_SERVERS must be a comma-separated list of server names: $HOMESTEAD_SIGNUP_SERVERS" >&2
+    exit 1
+    ;;
+esac
+
+case "${HOMESTEAD_PASSWORD_ENTRY:-}" in
+  "" | server | homestead) ;;
+  *)
+    echo "HOMESTEAD_PASSWORD_ENTRY must be server or homestead: $HOMESTEAD_PASSWORD_ENTRY" >&2
+    exit 1
+    ;;
+esac
+
 exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile

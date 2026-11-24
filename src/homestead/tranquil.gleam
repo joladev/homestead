@@ -1,7 +1,8 @@
 import at/did.{type Did}
 import at/handle.{type Handle}
 import gleam/dynamic/decode.{type Decoder}
-import gleam/http/request.{type Request}
+import gleam/http
+import gleam/http/request.{type Request, Request}
 import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
@@ -10,7 +11,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/time/timestamp.{type Timestamp}
-import gleam/uri.{type Uri}
+import gleam/uri.{type Uri, Uri}
 import homestead/browser.{type File}
 import homestead/date
 import homestead/json_text
@@ -23,9 +24,29 @@ pub type Software {
   OtherSoftware
 }
 
-pub fn health_request(server: Uri) -> Result(Request(String), Nil) {
-  request.from_uri(server)
-  |> result.map(request.set_path(_, "/xrpc/_health"))
+pub fn server_address(text: String) -> Result(Request(String), Nil) {
+  let text = string.trim(text)
+  let address = case string.contains(text, "://") {
+    True -> text
+    False -> "https://" <> text
+  }
+
+  case uri.parse(address) {
+    Ok(Uri(scheme: Some(_), host: Some(host), ..) as server) if host != "" ->
+      request.from_uri(Uri(..server, path: "", query: None, fragment: None))
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+pub fn server_name(server: Request(String)) -> String {
+  case server.port {
+    Some(port) -> server.host <> ":" <> int.to_string(port)
+    None -> server.host
+  }
+}
+
+pub fn health_request(server: Request(String)) -> Request(String) {
+  request.set_path(server, "/xrpc/_health")
 }
 
 pub fn health_decoder() -> Decoder(Software) {
@@ -122,7 +143,48 @@ pub type Server {
     discord_bot: Option(String),
     discord_app_id: Option(String),
     telegram_bot: Option(String),
+    invite_required: Bool,
+    privacy_policy: Option(String),
+    terms_of_service: Option(String),
   )
+}
+
+pub type Availability {
+  Available
+  Unavailable(reason: Option(String))
+}
+
+pub type SignInWays {
+  SignInWays(password: Bool, controlled: Bool)
+}
+
+pub type Contact {
+  ByEmail(address: String)
+  BySignal(username: String)
+  ByDiscord(username: String, email: String)
+  ByTelegram(username: String, email: String)
+}
+
+pub type NewAccount {
+  NewAccount(
+    handle: Handle,
+    password: String,
+    invite_code: Option(String),
+    contact: Contact,
+  )
+}
+
+pub type CreatedAccount {
+  CreatedAccount(account: Did, handle: Handle, token: String)
+}
+
+pub type SignInStep {
+  SignedIn(continue: Uri)
+  NeedsApproval
+  NeedsAuthenticatorCode
+  NeedsSentCode(channel: String)
+  NeedsServerPage
+  NeedsVerification(channel: Channel)
 }
 
 pub type MessageStatus {
@@ -392,6 +454,13 @@ pub fn server() -> Query(Server) {
     use discord_bot <- optional_text("discordBotUsername")
     use discord_app_id <- optional_text("discordAppId")
     use telegram_bot <- optional_text("telegramBotUsername")
+    use invite_required <- decode.optional_field(
+      "inviteCodeRequired",
+      False,
+      decode.bool,
+    )
+    use privacy_policy <- optional_link("privacyPolicy")
+    use terms_of_service <- optional_link("termsOfService")
 
     decode.success(Server(
       handle_domains:,
@@ -399,8 +468,55 @@ pub fn server() -> Query(Server) {
       discord_bot:,
       discord_app_id:,
       telegram_bot:,
+      invite_required:,
+      privacy_policy:,
+      terms_of_service:,
     ))
   })
+}
+
+fn optional_link(
+  name: String,
+  next: fn(Option(String)) -> Decoder(answer),
+) -> Decoder(answer) {
+  decode.optional_field(
+    "links",
+    None,
+    optional_text(name, decode.success),
+    next,
+  )
+}
+
+pub fn handle_availability(
+  name: String,
+  domain: String,
+) -> Query(Availability) {
+  Query(
+    path: "/oauth/sso/check-handle-available?"
+      <> uri.query_to_string([#("handle", name), #("domain", domain)]),
+    decoder: {
+      use available <- decode.field("available", decode.bool)
+      use reason <- optional_text("reason")
+
+      decode.success(case available {
+        True -> Available
+        False -> Unavailable(reason:)
+      })
+    },
+  )
+}
+
+pub fn sign_in_ways(account: Did) -> Query(SignInWays) {
+  Query(
+    path: "/oauth/security-status?"
+      <> uri.query_to_string([#("identifier", did.to_string(account))]),
+    decoder: {
+      use password <- decode.field("hasPassword", decode.bool)
+      use controlled <- decode.field("isDelegated", decode.bool)
+
+      decode.success(SignInWays(password:, controlled:))
+    },
+  )
 }
 
 pub fn language() -> Query(Option(String)) {
@@ -1455,6 +1571,251 @@ pub fn forget_remembered_app(client_id: String) -> Command(Nil) {
   )
 }
 
+pub fn create_account(new: NewAccount) -> Command(CreatedAccount) {
+  let channel = fn(name) { #("verificationChannel", json.string(name)) }
+  let contact = case new.contact {
+    ByEmail(address:) -> [channel("email"), #("email", json.string(address))]
+    BySignal(username:) -> [
+      channel("signal"),
+      #("signalUsername", json.string(username)),
+    ]
+    ByDiscord(username:, email:) -> [
+      channel("discord"),
+      #("discordUsername", json.string(username)),
+      #("email", json.string(email)),
+    ]
+    ByTelegram(username:, email:) -> [
+      channel("telegram"),
+      #("telegramUsername", json.string(username)),
+      #("email", json.string(email)),
+    ]
+  }
+  let invite_code = case new.invite_code {
+    Some(code) -> [#("inviteCode", json.string(code))]
+    None -> []
+  }
+
+  command_returning(
+    "com.atproto.server.createAccount",
+    json.object(
+      list.flatten([
+        [
+          #("handle", handle.to_json(new.handle)),
+          #("password", json.string(new.password)),
+        ],
+        invite_code,
+        contact,
+      ]),
+    ),
+    {
+      use account <- decode.field("did", did.decoder())
+      use handle <- decode.field("handle", handle.decoder())
+      use token <- decode.field("accessJwt", decode.string)
+
+      decode.success(CreatedAccount(account:, handle:, token:))
+    },
+  )
+}
+
+pub fn confirm_sign_up(account: Did, code: String) -> Command(String) {
+  command_returning(
+    "com.atproto.server.confirmSignup",
+    json.object([
+      #("did", did.to_json(account)),
+      #("verificationCode", json.string(code)),
+    ]),
+    decode.at(["accessJwt"], decode.string),
+  )
+}
+
+pub fn is_verified(account: Did, channel: Channel) -> Command(Bool) {
+  command_returning(
+    "_checkChannelVerified",
+    json.object([
+      #("did", did.to_json(account)),
+      #("channel", json.string(channel_name(channel))),
+    ]),
+    decode.at(["verified"], decode.bool),
+  )
+}
+
+pub fn enter_code(request: String, code: String) -> Command(SignInStep) {
+  Command(
+    path: "/oauth/authorize/2fa",
+    body: json.to_string(
+      json.object([
+        #("request_uri", json.string(request)),
+        #("code", json.string(code)),
+        #("trust_device", json.bool(False)),
+      ]),
+    ),
+    read: read_step,
+  )
+}
+
+pub fn approve(request: String, scopes: List(String)) -> Command(SignInStep) {
+  Command(
+    path: "/oauth/authorize/consent",
+    body: json.to_string(
+      json.object([
+        #("request_uri", json.string(request)),
+        #("approved_scopes", json.array(scopes, json.string)),
+        #("remember", json.bool(True)),
+      ]),
+    ),
+    read: read_step,
+  )
+}
+
+pub fn enter_password(
+  server: Request(String),
+  request: String,
+  account: Did,
+  password: String,
+  to_message: fn(Result(SignInStep, Problem)) -> message,
+) -> Effect(message) {
+  let body =
+    json.object([
+      #("request_uri", json.string(request)),
+      #("username", did.to_json(account)),
+      #("password", json.string(password)),
+      #("remember_device", json.bool(False)),
+    ])
+
+  rsvp.send(
+    posting(server, "/oauth/authorize", json.to_string(body)),
+    rsvp.expect_any_response(fn(response) {
+      to_message(case response {
+        Ok(response) ->
+          case read_step(response.body), response.status {
+            Ok(step), _ -> Ok(step)
+            Error(problem), 200 -> Error(problem)
+            Error(_), _ -> Error(refusal(response.body))
+          }
+        Error(_) -> Error(Unreachable)
+      })
+    }),
+  )
+}
+
+fn read_step(body: String) -> Result(SignInStep, Problem) {
+  json.parse(body, sign_in_step_decoder())
+  |> result.replace_error(NotUnderstood)
+}
+
+pub fn sign_in_step_decoder() -> Decoder(SignInStep) {
+  let continuing = {
+    use address <- decode.field("redirect_uri", decode.string)
+
+    case uri.parse(address) {
+      Ok(Uri(host: Some(_), ..) as continue) ->
+        decode.success(SignedIn(continue:))
+      Ok(Uri(host: None, path: "/app/oauth/consent", ..)) ->
+        decode.success(NeedsApproval)
+      Ok(_) | Error(Nil) -> decode.failure(NeedsApproval, "SignInStep")
+    }
+  }
+  let authenticator = {
+    use _ <- decode.field("needs_totp", decode.bool)
+
+    decode.success(NeedsAuthenticatorCode)
+  }
+  let sent_code = {
+    use _ <- decode.field("needs_2fa", decode.bool)
+    use channel <- decode.field("channel", decode.string)
+
+    decode.success(NeedsSentCode(channel:))
+  }
+  let server_page = {
+    use _ <- decode.field("next", decode.string)
+
+    decode.success(NeedsServerPage)
+  }
+  let verification = {
+    use error <- decode.field("error", decode.string)
+    use channel <- decode.field("channel", channel_decoder())
+
+    case error {
+      "account_not_verified" -> decode.success(NeedsVerification(channel:))
+      _ -> decode.failure(NeedsVerification(channel:), "SignInStep")
+    }
+  }
+
+  decode.one_of(continuing, or: [
+    authenticator,
+    sent_code,
+    server_page,
+    verification,
+  ])
+}
+
+pub fn ask(
+  server: Request(String),
+  query: Query(answer),
+  to_message: fn(Result(answer, Problem)) -> message,
+) -> Effect(message) {
+  rsvp.send(
+    addressed(server, query.path),
+    answered(parse(query, _), to_message),
+  )
+}
+
+pub fn submit(
+  server: Request(String),
+  command: Command(answer),
+  to_message: fn(Result(answer, Problem)) -> message,
+) -> Effect(message) {
+  rsvp.send(
+    posting(server, command.path, command.body),
+    answered(command.read, to_message),
+  )
+}
+
+pub fn close_session(
+  server: Request(String),
+  token: String,
+  to_message: fn(Result(Nil, Problem)) -> message,
+) -> Effect(message) {
+  rsvp.send(
+    posting(server, "/xrpc/com.atproto.server.deleteSession", "{}")
+      |> request.set_header("authorization", "Bearer " <> token),
+    answered(fn(_) { Ok(Nil) }, to_message),
+  )
+}
+
+fn addressed(server: Request(String), path: String) -> Request(String) {
+  let request = case string.split_once(path, "?") {
+    Ok(#(path, query)) -> Request(..server, path:, query: Some(query))
+    Error(Nil) -> Request(..server, path:, query: None)
+  }
+
+  request.set_header(request, "accept", "application/json")
+}
+
+fn posting(
+  server: Request(String),
+  path: String,
+  body: String,
+) -> Request(String) {
+  addressed(server, path)
+  |> request.set_method(http.Post)
+  |> request.set_header("content-type", "application/json")
+  |> request.set_body(body)
+}
+
+fn answered(
+  read: fn(String) -> Result(answer, Problem),
+  to_message: fn(Result(answer, Problem)) -> message,
+) -> rsvp.Handler(String, message) {
+  rsvp.expect_any_response(fn(response) {
+    to_message(case response {
+      Ok(response) if response.status == 200 -> read(response.body)
+      Ok(response) -> Error(refusal(response.body))
+      Error(_) -> Error(Unreachable)
+    })
+  })
+}
+
 pub fn parse(query: Query(answer), body: String) -> Result(answer, Problem) {
   json.parse(body, query.decoder) |> result.replace_error(NotUnderstood)
 }
@@ -1590,6 +1951,11 @@ fn refusal(body: String) -> Problem {
   let decoder = {
     use error <- decode.field("error", decode.string)
     use message <- decode.optional_field("message", "", decode.string)
+    use message <- decode.optional_field(
+      "error_description",
+      message,
+      decode.string,
+    )
 
     decode.success(Refused(error:, message:))
   }

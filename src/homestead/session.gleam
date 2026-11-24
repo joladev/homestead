@@ -1,5 +1,6 @@
 import at/did.{type Did}
 import at/handle.{type Handle}
+import gleam/http/request.{type Request}
 import gleam/javascript/array.{type Array}
 import gleam/javascript/promise.{type Promise}
 import gleam/list
@@ -11,7 +12,7 @@ import homestead/browser.{type File}
 
 pub const callback_path = "/oauth/callback"
 
-const scopes = [
+pub const scopes = [
   "atproto",
   "repo:*?action=create",
   "repo:*?action=update",
@@ -29,6 +30,10 @@ type Agent
 
 pub type Client {
   Client(id: String, redirect_uri: String)
+}
+
+pub type Attempt {
+  Attempt(request: String, server_page: Uri)
 }
 
 pub type Departure {
@@ -74,11 +79,20 @@ pub fn configure(client: Client, directory: Uri) -> Nil {
   do_configure(client.id, client.redirect_uri, uri.to_string(directory))
 }
 
-pub fn begin(account: Did) -> Promise(Result(Uri, Problem)) {
+pub fn begin(account: Did) -> Promise(Result(Attempt, Problem)) {
   use login <- promise.map(do_begin(did.to_string(account), scope()))
   use login <- result.try(result.map_error(login, problem))
 
-  uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
+  attempt(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
+}
+
+pub fn attempt(login: String) -> Result(Attempt, Nil) {
+  use server_page <- result.try(uri.parse(login))
+  use query <- result.try(option.to_result(server_page.query, Nil))
+  use parameters <- result.try(uri.parse_query(query))
+  use request <- result.map(list.key_find(parameters, "request_uri"))
+
+  Attempt(request:, server_page:)
 }
 
 pub fn act_as(session: Session, account: Did) -> Promise(Result(Uri, Problem)) {
@@ -92,9 +106,9 @@ pub fn act_as(session: Session, account: Did) -> Promise(Result(Uri, Problem)) {
   uri.parse(login) |> result.replace_error(Failed(error: "InvalidLoginAddress"))
 }
 
-pub fn begin_sign_up(server: Uri) -> Promise(Result(Uri, Problem)) {
+pub fn begin_sign_up(server: Request(String)) -> Promise(Result(Uri, Problem)) {
   use registration <- promise.map(do_begin_sign_up(
-    uri.to_string(server),
+    uri.to_string(request.to_uri(server)),
     scope(),
   ))
   use registration <- result.try(result.map_error(registration, problem))

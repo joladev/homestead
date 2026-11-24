@@ -11,15 +11,17 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import gleam/uri.{type Uri}
 import homestead/browser
 import homestead/identity
 import homestead/landing
-import homestead/session.{type StoredAccount}
+import homestead/password_sign_in.{type Unverified}
+import homestead/session.{type Attempt, type StoredAccount}
 import homestead/setting.{type Settings}
 import homestead/slingshot
 import homestead/tern.{type Actor}
-import homestead/tranquil.{type Software, OtherSoftware, Tranquil}
+import homestead/tranquil.{
+  type SignInWays, type Software, OtherSoftware, SignInWays, Tranquil,
+}
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -30,6 +32,8 @@ import rsvp
 
 pub const path = "/sign-in"
 
+const identifier_id = "identifier"
+
 pub opaque type Model {
   Model(
     settings: Settings,
@@ -39,7 +43,12 @@ pub opaque type Model {
     identifier: String,
     suggestions: Suggestions,
     lookup: Lookup,
+    entry: Option(password_sign_in.Model),
   )
+}
+
+type Found {
+  Found(account: Did, name: String, server: Request(String))
 }
 
 type Suggestions {
@@ -75,6 +84,20 @@ pub fn init(settings: Settings, accounts: List(StoredAccount)) -> Model {
     identifier: "",
     suggestions: Hidden(actors: []),
     lookup: NotStarted,
+    entry: None,
+  )
+}
+
+pub fn verify(
+  settings: Settings,
+  accounts: List(StoredAccount),
+  unverified: Unverified,
+) -> #(Model, Effect(Message)) {
+  let #(entry, effect) = password_sign_in.verify(unverified)
+
+  #(
+    Model(..init(settings, accounts), entry: Some(entry)),
+    effect.map(effect, EntryProducedMessage),
   )
 }
 
@@ -114,8 +137,13 @@ pub opaque type Message {
     did: Did,
     result: Result(Response(String), rsvp.Error(String)),
   )
-  ServerReturnedHealth(did: Did, result: Result(Software, rsvp.Error(String)))
-  ServerPreparedSignIn(result: Result(Uri, session.Problem))
+  ServerReturnedHealth(
+    found: Found,
+    result: Result(Software, rsvp.Error(String)),
+  )
+  ServerReturnedWays(found: Found, result: Result(SignInWays, tranquil.Problem))
+  ServerPreparedSignIn(result: Result(Attempt, session.Problem))
+  EntryProducedMessage(password_sign_in.Message)
 }
 
 type Direction {
@@ -124,9 +152,49 @@ type Direction {
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
-  case model.lookup {
-    Looking -> update_while_looking(model, message)
-    NotStarted | Failed(_) -> update_while_idle(model, message)
+  case model.entry, model.lookup {
+    Some(entry), _ -> update_while_entering(model, entry, message)
+    None, Looking -> update_while_looking(model, message)
+    None, NotStarted | None, Failed(_) -> update_while_idle(model, message)
+  }
+}
+
+fn update_while_entering(
+  model: Model,
+  entry: password_sign_in.Model,
+  message: Message,
+) -> #(Model, Effect(Message)) {
+  case message {
+    EntryProducedMessage(message) -> {
+      let #(entry, effect) = password_sign_in.update(entry, message)
+
+      case password_sign_in.is_cancelled(entry) {
+        True -> #(Model(..model, entry: None), browser.focus(identifier_id))
+        False -> #(
+          Model(..model, entry: Some(entry)),
+          effect.map(effect, EntryProducedMessage),
+        )
+      }
+    }
+
+    BrowserRemovedAccount(did:) -> #(without_account(model, did), effect.none())
+
+    UserPickedAccount(..)
+    | UserSignedOutAccount(..)
+    | UserTypedIdentifier(..)
+    | UserPausedTyping(..)
+    | UserPressedArrow(..)
+    | UserDismissedSuggestions
+    | UserPickedSuggestion(..)
+    | UserSubmittedForm(..)
+    | TernReturnedActors(..)
+    | TernReturnedMatches(..)
+    | SlingshotReturnedDid(..)
+    | HandleHostReturnedDid(..)
+    | DirectoryReturnedDocument(..)
+    | ServerReturnedHealth(..)
+    | ServerReturnedWays(..)
+    | ServerPreparedSignIn(..) -> #(model, effect.none())
   }
 }
 
@@ -207,7 +275,9 @@ fn update_while_idle(
     | HandleHostReturnedDid(..)
     | DirectoryReturnedDocument(..)
     | ServerReturnedHealth(..)
-    | ServerPreparedSignIn(..) -> #(model, effect.none())
+    | ServerReturnedWays(..)
+    | ServerPreparedSignIn(..)
+    | EntryProducedMessage(_) -> #(model, effect.none())
   }
 }
 
@@ -267,16 +337,17 @@ fn update_while_looking(
           |> result.replace_error(DocumentNotFound),
         )
         use <- bool.guard(account.id != did, Error(DocumentNotFound))
-        use server <- result.try(
+        use server <- result.map(
           did_document.pds(account)
+          |> result.try(request.from_uri)
           |> result.replace_error(ServerNotListed),
         )
-        use request <- result.map(
-          tranquil.health_request(server)
-          |> result.replace_error(ServerNotListed),
-        )
+        let name = case did_document.also_known_as(account) {
+          Ok(handle) -> handle.to_string(handle)
+          Error(Nil) -> did.to_string(did)
+        }
 
-        check_health(did, request)
+        check_health(Found(account: did, name:, server:))
       }
 
       case health_check {
@@ -288,9 +359,16 @@ fn update_while_looking(
       }
     }
 
-    ServerReturnedHealth(did:, result: health) -> {
+    ServerReturnedHealth(found:, result: health) -> {
       let sign_in = case health {
-        Ok(Tranquil(_)) -> Ok(prepare_sign_in(did))
+        Ok(Tranquil(_)) ->
+          Ok(
+            tranquil.ask(
+              found.server,
+              tranquil.sign_in_ways(found.account),
+              ServerReturnedWays(found, _),
+            ),
+          )
         Ok(OtherSoftware) -> Error(NotTranquil)
         Error(rsvp.NetworkError) -> Error(ServerUnreachable)
         Error(rsvp.HttpError(response)) if response.status == 503 ->
@@ -311,9 +389,44 @@ fn update_while_looking(
       }
     }
 
-    ServerPreparedSignIn(result: Ok(login)) -> #(
+    ServerReturnedWays(
+      found:,
+      result: Ok(SignInWays(password: True, controlled: False)),
+    ) -> {
+      let #(entry, effect) =
+        password_sign_in.init(
+          account: found.account,
+          name: found.name,
+          server: found.server,
+          leading: model.settings.password_entry,
+        )
+
+      #(
+        Model(..model, lookup: NotStarted, entry: Some(entry)),
+        effect.map(effect, EntryProducedMessage),
+      )
+    }
+
+    ServerReturnedWays(found:, result: Ok(SignInWays(password: False, ..)))
+    | ServerReturnedWays(found:, result: Ok(SignInWays(controlled: True, ..))) -> #(
+      model,
+      prepare_sign_in(found.account),
+    )
+
+    ServerReturnedWays(result: Error(tranquil.Unreachable), ..) -> #(
+      Model(..model, lookup: Failed(ServerUnreachable)),
+      effect.none(),
+    )
+
+    ServerReturnedWays(result: Error(tranquil.Refused(_, _)), ..)
+    | ServerReturnedWays(result: Error(tranquil.NotUnderstood), ..) -> #(
+      Model(..model, lookup: Failed(SignInNotPrepared)),
+      effect.none(),
+    )
+
+    ServerPreparedSignIn(result: Ok(attempt)) -> #(
       Model(..model, lookup: NotStarted),
-      modem.load(login),
+      modem.load(attempt.server_page),
     )
 
     ServerPreparedSignIn(result: Error(_)) -> #(
@@ -331,7 +444,8 @@ fn update_while_looking(
     | UserDismissedSuggestions
     | UserPickedSuggestion(..)
     | UserSubmittedForm(..)
-    | TernReturnedActors(..) -> #(model, effect.none())
+    | TernReturnedActors(..)
+    | EntryProducedMessage(_) -> #(model, effect.none())
   }
 }
 
@@ -452,10 +566,10 @@ fn fetch_document(directory: Request(String), did: Did) -> Effect(Message) {
   )
 }
 
-fn check_health(did: Did, request: Request(String)) -> Effect(Message) {
+fn check_health(found: Found) -> Effect(Message) {
   rsvp.send(
-    request,
-    rsvp.expect_json(tranquil.health_decoder(), ServerReturnedHealth(did, _)),
+    tranquil.health_request(found.server),
+    rsvp.expect_json(tranquil.health_decoder(), ServerReturnedHealth(found, _)),
   )
 }
 
@@ -464,6 +578,17 @@ fn prepare_sign_in(did: Did) -> Effect(Message) {
 }
 
 pub fn view(model: Model) -> Element(Message) {
+  case model.entry {
+    Some(entry) ->
+      landing.view(
+        password_sign_in.view(entry)
+        |> list.map(element.map(_, EntryProducedMessage)),
+      )
+    None -> view_finding(model)
+  }
+}
+
+fn view_finding(model: Model) -> Element(Message) {
   landing.view([
     html.h2([], [html.text("Sign in")]),
     view_accounts(model),
@@ -519,11 +644,11 @@ fn view_form(model: Model) -> Element(Message) {
   }
 
   html.form([event.on_submit(UserSubmittedForm)], [
-    html.label([attribute.for("identifier")], [html.text("Your handle")]),
+    html.label([attribute.for(identifier_id)], [html.text("Your handle")]),
     html.div([attribute.class("field")], [
       html.div([attribute.class("combobox")], [
         html.input([
-          attribute.id("identifier"),
+          attribute.id(identifier_id),
           attribute.name("identifier"),
           attribute.type_("text"),
           attribute.value(model.identifier),

@@ -130,11 +130,28 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     SigningUp(sign_up:), SignUpProducedMessage(message) -> {
       let #(sign_up, effect) = sign_up.update(sign_up, message)
+      let effect = effect.map(effect, SignUpProducedMessage)
 
-      #(
-        Model(..model, state: SigningUp(sign_up:)),
-        effect.map(effect, SignUpProducedMessage),
-      )
+      case sign_up.created(sign_up) {
+        Some(unverified) -> {
+          let #(sign_in, verification) =
+            sign_in.verify(
+              model.settings,
+              session.stored_accounts(),
+              unverified,
+            )
+
+          #(
+            Model(..model, state: SignedOut(sign_in:)),
+            effect.batch([
+              effect,
+              effect.map(verification, SignInProducedMessage),
+              show_overview(),
+            ]),
+          )
+        }
+        None -> #(Model(..model, state: SigningUp(sign_up:)), effect)
+      }
     }
 
     AddingAccount(_), UserNavigatedTo(uri:)
@@ -148,7 +165,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     SignedOut(_), UserNavigatedTo(uri:) ->
       case front_page(model.settings, uri) {
-        Ok(state) -> #(Model(..model, state:), effect.none())
+        Ok(#(state, effect)) -> #(Model(..model, state:), effect)
         Error(Nil) -> #(model, effect.none())
       }
 
@@ -184,7 +201,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     SignedIn(dashboard:), UserNavigatedTo(uri:) ->
       case front_page(model.settings, uri) {
-        Ok(state) -> #(Model(..model, state:), effect.none())
+        Ok(#(state, effect)) -> #(Model(..model, state:), effect)
         Error(Nil) ->
           open_dashboard(model, dashboard.show(dashboard, route.from_uri(uri)))
       }
@@ -288,16 +305,24 @@ fn open_dashboard(
 
 fn enter(settings: Settings, location: Uri) -> #(State, Effect(Message)) {
   case front_page(settings, location) {
-    Ok(state) -> #(state, effect.none())
+    Ok(entered) -> entered
     Error(Nil) -> #(Restoring(location:), restore_session())
   }
 }
 
-fn front_page(settings: Settings, location: Uri) -> Result(State, Nil) {
+fn front_page(
+  settings: Settings,
+  location: Uri,
+) -> Result(#(State, Effect(Message)), Nil) {
   case location.path {
-    path if path == about.path -> Ok(ReadingAbout)
-    path if path == sign_in.path -> Ok(AddingAccount(new_sign_in(settings)))
-    "/sign-up" -> Ok(SigningUp(sign_up.init()))
+    path if path == about.path -> Ok(#(ReadingAbout, effect.none()))
+    path if path == sign_in.path ->
+      Ok(#(AddingAccount(new_sign_in(settings)), effect.none()))
+    "/sign-up" -> {
+      let #(sign_up, effect) = sign_up.init(settings)
+
+      Ok(#(SigningUp(sign_up:), effect.map(effect, SignUpProducedMessage)))
+    }
     _ -> Error(Nil)
   }
 }
