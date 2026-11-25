@@ -297,13 +297,7 @@ pub fn view(model: Model) -> Element(Message) {
           layout.block([view_totals(totals), view_version(software, tags)]),
         ]),
         layout.section("relays", [
-          map(
-            server_relay.view(relays, case totals {
-              Loaded(value: totals) -> Some(totals.accounts)
-              Loading | Failed(_) -> None
-            }),
-            RelaysProducedMessage,
-          ),
+          map(server_relay.view(relays), RelaysProducedMessage),
         ]),
         layout.section("signal", [
           map(signal.view(signal), SignalProducedMessage),

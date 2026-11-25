@@ -51,10 +51,6 @@ pub type ServerStatus {
   NotKnown
 }
 
-pub type ServerView {
-  ServerView(status: ServerStatus, accounts: Option(Int))
-}
-
 pub type AccountStatus {
   Active(revision: Option(String))
   Inactive(reason: Option(String))
@@ -237,39 +233,20 @@ pub fn reconnect_request(
 pub fn read_server(
   result: Result(Response(String), rsvp.Error(String)),
 ) -> Remote(ServerStatus) {
-  remote.map(read_server_view(result), fn(view) { view.status })
-}
-
-pub fn read_server_view(
-  result: Result(Response(String), rsvp.Error(String)),
-) -> Remote(ServerView) {
-  let view = {
+  let status = {
     use name <- decode.field("status", decode.string)
-    use accounts <- decode.optional_field(
-      "accountCount",
-      None,
-      decode.optional(decode.int),
-    )
 
-    decode.success(ServerView(
-      status: case name {
-        "active" -> Connected
-        "idle" -> Idle
-        "offline" -> Offline
-        "throttled" -> Throttled
-        "banned" -> Banned
-        name -> OtherServerStatus(name:)
-      },
-      accounts:,
-    ))
+    decode.success(case name {
+      "active" -> Connected
+      "idle" -> Idle
+      "offline" -> Offline
+      "throttled" -> Throttled
+      "banned" -> Banned
+      name -> OtherServerStatus(name:)
+    })
   }
 
-  read(
-    result,
-    view,
-    refused: "HostNotFound",
-    meaning: ServerView(status: NotKnown, accounts: None),
-  )
+  read(result, status, refused: "HostNotFound", meaning: NotKnown)
 }
 
 pub fn read_account(

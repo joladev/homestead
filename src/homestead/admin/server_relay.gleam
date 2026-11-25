@@ -1,14 +1,13 @@
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import homestead/browser
 import homestead/layout.{Plain, Warning}
 import homestead/relay.{
-  type ServerView, Banned, Connected, Idle, NotKnown, Offline, OtherServerStatus,
-  ServerView, Throttled,
+  type ServerStatus, Banned, Connected, Idle, NotKnown, Offline,
+  OtherServerStatus, Throttled,
 }
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
@@ -30,7 +29,7 @@ pub opaque type Model {
 type Relay {
   Relay(
     address: Request(String),
-    view: Remote(ServerView),
+    status: Remote(ServerStatus),
     reconnect: Option(Reconnect),
   )
 }
@@ -49,7 +48,7 @@ pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
     Model(
       server:,
       relays: list.map(settings.relays, fn(address) {
-        Relay(address:, view: Loading, reconnect: None)
+        Relay(address:, status: Loading, reconnect: None)
       }),
     ),
     effect.batch(list.map(settings.relays, ask(_, server))),
@@ -73,7 +72,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     RelayReturnedServer(relay: address, result:) -> #(
       change(model, address, fn(row) {
-        Relay(..row, view: relay.read_server_view(result))
+        Relay(..row, status: relay.read_server(result))
       }),
       effect.none(),
     )
@@ -106,7 +105,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     BrowserWaitedForRelay(relay: address) -> #(
-      change(model, address, fn(row) { Relay(..row, view: Loading) }),
+      change(model, address, fn(row) { Relay(..row, status: Loading) }),
       ask(address, model.server),
     )
   }
@@ -135,18 +134,18 @@ fn ask(address: Request(String), server: String) -> Effect(Message) {
   )
 }
 
-pub fn view(model: Model, own_accounts: Option(Int)) -> List(Element(Message)) {
+pub fn view(model: Model) -> List(Element(Message)) {
   [
     html.div([attribute.class("relays")], [
-      layout.block(list.map(model.relays, view_relay(_, own_accounts))),
+      layout.block(list.map(model.relays, view_relay)),
     ]),
   ]
 }
 
-fn view_relay(row: Relay, own_accounts: Option(Int)) -> Element(Message) {
+fn view_relay(row: Relay) -> Element(Message) {
   let name = tranquil.server_name(row.address)
 
-  case row.view {
+  case row.status {
     Loading ->
       layout.row(tone: Plain, name:, details: [layout.pending()], actions: [])
 
@@ -158,7 +157,7 @@ fn view_relay(row: Relay, own_accounts: Option(Int)) -> Element(Message) {
         actions: [],
       )
 
-    Loaded(value: ServerView(status:, accounts:)) -> {
+    Loaded(value: status) -> {
       let status_fact = case status {
         Connected -> "connected"
         Idle -> "idle"
@@ -167,13 +166,6 @@ fn view_relay(row: Relay, own_accounts: Option(Int)) -> Element(Message) {
         Banned -> "banned"
         OtherServerStatus(name:) -> name
         NotKnown -> "not known"
-      }
-      let account_fact = case accounts, own_accounts {
-        Some(seen), Some(own) -> [
-          int.to_string(seen) <> " of " <> int.to_string(own) <> " accounts",
-        ]
-        Some(seen), None -> [int.to_string(seen) <> " accounts"]
-        None, _ -> []
       }
       let reconnect_fact = case row.reconnect {
         None -> []
@@ -195,10 +187,7 @@ fn view_relay(row: Relay, own_accounts: Option(Int)) -> Element(Message) {
         },
         name:,
         details: [
-          html.text(string.join(
-            list.flatten([[status_fact], account_fact, reconnect_fact]),
-            " \u{00B7} ",
-          )),
+          html.text(string.join([status_fact, ..reconnect_fact], " \u{00B7} ")),
         ],
         actions: case can_reconnect, row.reconnect {
           True, None -> [
