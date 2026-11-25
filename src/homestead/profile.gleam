@@ -717,27 +717,13 @@ fn view_handle(
 
   layout.block([
     layout.row(
-      tone: case resolves {
-        Loaded(value: False) -> layout.Warning
-        Loading | Loaded(value: True) | Failed(_) -> layout.Plain
-      },
+      tone: layout.Plain,
       name: "Handle",
       details: [
         {
           use account <- layout.value(account)
 
-          html.span([attribute.class("lines")], [
-            html.code([], [html.text("@" <> handle.to_string(account.handle))]),
-            case resolves {
-              Loading -> layout.pending()
-              Loaded(value: True) -> layout.dim("Resolves to this account")
-              Loaded(value: False) ->
-                html.span([], [html.text("Doesn't resolve to this account")])
-              Failed(_) -> layout.dim("Couldn't check whether it resolves")
-            },
-            view_finding("DNS record", check.record),
-            view_finding("File", check.file),
-          ])
+          html.code([], [html.text("@" <> handle.to_string(account.handle))])
         },
       ],
       actions: [
@@ -752,6 +738,20 @@ fn view_handle(
         ),
       ],
     ),
+    case resolves {
+      Loading -> view_pending_check("Slingshot")
+      Loaded(value: True) ->
+        view_check("Slingshot", layout.Plain, "resolves to this account")
+      Loaded(value: False) ->
+        view_check(
+          "Slingshot",
+          layout.Warning,
+          "doesn't resolve to this account",
+        )
+      Failed(_) -> view_check("Slingshot", layout.Plain, "couldn't be checked")
+    },
+    view_finding("DNS record", check.record),
+    view_finding("File", check.file),
     html.form([event.on_submit(fn(_) { UserSubmittedHandle })], [
       layout.field(
         html.label([attribute.for("new-handle")], [html.text("New handle")]),
@@ -813,19 +813,37 @@ fn view_handle(
   ])
 }
 
-fn view_finding(subject: String, finding: Remote(Finding)) -> Element(Message) {
+fn view_finding(name: String, finding: Remote(Finding)) -> Element(Message) {
   case finding {
-    Loading -> layout.pending()
-    Failed(_) -> layout.dim(subject <> " couldn't be checked")
+    Loading -> view_pending_check(name)
+    Failed(_) -> view_check(name, layout.Plain, "couldn't be checked")
     Loaded(value: PointsHere) ->
-      layout.dim(subject <> " points to this account")
+      view_check(name, layout.Plain, "points to this account")
     Loaded(value: PointsElsewhere) ->
-      layout.dim(subject <> " points to another account")
-    Loaded(value: Malformed) -> layout.dim(subject <> " doesn't contain a DID")
-    Loaded(value: Absent) -> layout.dim(subject <> " not found")
+      view_check(name, layout.Warning, "points to another account")
+    Loaded(value: Malformed) ->
+      view_check(name, layout.Plain, "doesn't contain a DID")
+    Loaded(value: Absent) -> view_check(name, layout.Plain, "not found")
     Loaded(value: Unreadable) ->
-      layout.dim(subject <> " can't be read from a browser")
+      view_check(name, layout.Plain, "can't be read from a browser")
   }
+}
+
+fn view_check(
+  name: String,
+  tone: layout.Tone,
+  fact: String,
+) -> Element(Message) {
+  layout.row(tone:, name:, details: [html.text(fact)], actions: [])
+}
+
+fn view_pending_check(name: String) -> Element(Message) {
+  layout.row(
+    tone: layout.Plain,
+    name:,
+    details: [layout.pending()],
+    actions: [],
+  )
 }
 
 fn view_domain_setup(form: HandleForm, account: Did) -> Element(Message) {
