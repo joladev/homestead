@@ -34,6 +34,8 @@ const server_page_id = "sign-up-server-page"
 
 const typing_pause_milliseconds = 400
 
+const not_prepared = "Couldn't start signing up on that server."
+
 const name_characters = "abcdefghijklmnopqrstuvwxyz0123456789-"
 
 const common_passwords = [
@@ -50,12 +52,17 @@ pub opaque type Model {
   Model(
     leading: PasswordEntry,
     listed: List(Listed),
-    address: String,
-    lookup: Lookup,
     invited: Option(Invitation),
-    form: Option(Form),
-    created: Option(Unverified),
+    address: String,
+    step: Step,
   )
+}
+
+type Step {
+  PickingServer(lookup: Lookup)
+  ChoosingWay(form: Form, handoff: Handoff)
+  FillingForm(form: Form, handoff: Handoff)
+  Created(account: Unverified)
 }
 
 type Invitation {
@@ -86,17 +93,20 @@ type Problem {
   SignUpNotPrepared
 }
 
+type Handoff {
+  NotTried
+  NotPrepared
+}
+
 type Form {
   Form(
     server: Request(String),
     description: Server,
-    is_invited: Bool,
-    is_filling: Bool,
     name: String,
     domain: String,
     availability: HandleCheck,
     password: String,
-    invite_code: String,
+    invite_code: Option(String),
     channel: Channel,
     email: String,
     username: String,
@@ -117,43 +127,44 @@ pub type Rule {
 
 pub fn init(settings: Settings, location: Uri) -> #(Model, Effect(Message)) {
   let address = option.unwrap(route.query(location, "server"), "")
-  let linked = case address {
-    "" -> Error(NotStarted)
-    address ->
-      tranquil.server_address(address)
-      |> result.replace_error(Failed(AddressNotUnderstood))
-  }
   let model =
     Model(
       leading: settings.password_entry,
       listed: list.map(settings.sign_up_servers, Listed(_, offer: Checking)),
-      address:,
-      lookup: NotStarted,
       invited: None,
-      form: None,
-      created: None,
+      address:,
+      step: PickingServer(lookup: NotStarted),
     )
   let listed_checks = list.map(settings.sign_up_servers, check_health)
 
-  case linked {
-    Ok(server) -> #(
+  case address, tranquil.server_address(address) {
+    "", _ -> #(model, effect.batch(listed_checks))
+
+    _, Ok(server) -> #(
       Model(
         ..model,
-        lookup: CheckingServer(server:),
         invited: route.query(location, "invite")
           |> option.map(Invitation(server:, code: _)),
+        step: PickingServer(lookup: CheckingServer(server:)),
       ),
       effect.batch(case list.contains(settings.sign_up_servers, server) {
         True -> listed_checks
         False -> [check_health(server), ..listed_checks]
       }),
     )
-    Error(lookup) -> #(Model(..model, lookup:), effect.batch(listed_checks))
+
+    _, Error(Nil) -> #(
+      Model(..model, step: PickingServer(lookup: Failed(AddressNotUnderstood))),
+      effect.batch(listed_checks),
+    )
   }
 }
 
 pub fn created(model: Model) -> Option(Unverified) {
-  model.created
+  case model.step {
+    Created(account:) -> Some(account)
+    PickingServer(_) | ChoosingWay(..) | FillingForm(..) -> None
+  }
 }
 
 pub opaque type Message {
@@ -191,71 +202,134 @@ pub opaque type Message {
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
+  case model.step {
+    PickingServer(_) -> update_while_picking(model, message)
+    ChoosingWay(form:, ..) -> update_while_choosing(model, form, message)
+    FillingForm(form:, handoff:) ->
+      update_while_filling(model, form, handoff, message)
+    Created(_) -> #(model, effect.none())
+  }
+}
+
+fn update_while_picking(
+  model: Model,
+  message: Message,
+) -> #(Model, Effect(Message)) {
   case message {
     UserPickedServer(server:, description:) -> offer(model, server, description)
 
     UserTypedAddress(address:) -> #(
-      Model(..model, address:, lookup: NotStarted),
+      Model(..model, address:, step: PickingServer(lookup: NotStarted)),
       effect.none(),
     )
 
     UserSubmittedAddress ->
       case tranquil.server_address(model.address) {
         Ok(server) -> #(
-          Model(..model, lookup: CheckingServer(server:)),
+          Model(..model, step: PickingServer(lookup: CheckingServer(server:))),
           check_health(server),
         )
         Error(Nil) -> #(
-          Model(..model, lookup: Failed(AddressNotUnderstood)),
+          Model(
+            ..model,
+            step: PickingServer(lookup: Failed(AddressNotUnderstood)),
+          ),
           effect.none(),
         )
       }
 
-    ServerReturnedHealth(server:, result: Ok(Tranquil(_))) -> #(
-      model,
-      tranquil.ask(server, tranquil.server(), ServerDescribedItself(server, _)),
+    ServerReturnedHealth(server:, result:) ->
+      record_health(model, server, result)
+
+    ServerDescribedItself(server:, result:) ->
+      record_description(model, server, result)
+
+    UserChoseAnotherServer
+    | UserTypedName(_)
+    | UserPausedTypingName(..)
+    | UserPickedDomain(_)
+    | ServerReturnedAvailability(..)
+    | UserTypedPassword(_)
+    | UserTypedInviteCode(_)
+    | UserPickedChannel(_)
+    | UserTypedEmail(_)
+    | UserTypedUsername(_)
+    | UserSubmittedAccount
+    | ServerCreatedAccount(_)
+    | ServerClosedSession(_)
+    | UserChoseServerPage
+    | UserChoseForm
+    | ServerPreparedSignUp(_) -> #(model, effect.none())
+  }
+}
+
+fn update_while_choosing(
+  model: Model,
+  form: Form,
+  message: Message,
+) -> #(Model, Effect(Message)) {
+  case message {
+    UserChoseServerPage -> #(
+      Model(..model, step: ChoosingWay(form:, handoff: NotTried)),
+      prepare_server_page(form),
     )
 
-    ServerReturnedHealth(server:, result:) ->
-      decline(model, server, case result {
-        Error(rsvp.NetworkError) -> ServerUnreachable
-        Error(rsvp.HttpError(response)) if response.status == 503 ->
-          ServerUnavailable
-        Ok(Tranquil(_))
-        | Ok(OtherSoftware)
-        | Error(rsvp.HttpError(_))
-        | Error(rsvp.JsonError(_))
-        | Error(rsvp.UnhandledResponse(_))
-        | Error(rsvp.BadBody)
-        | Error(rsvp.BadUrl(_)) -> NotTranquil
-      })
+    UserChoseForm -> #(
+      Model(..model, step: FillingForm(form:, handoff: NotTried)),
+      browser.focus(name_id),
+    )
 
-    ServerDescribedItself(server:, result: Ok(description)) -> {
-      let model = mark(model, server, Offered(description:))
+    UserChoseAnotherServer -> pick_another_server(model)
 
-      case model.lookup == CheckingServer(server:) {
-        True -> offer(model, server, description)
-        False -> #(model, effect.none())
-      }
-    }
+    ServerPreparedSignUp(result: Ok(registration)) -> #(
+      model,
+      modem.load(registration),
+    )
 
-    ServerDescribedItself(server:, result: Error(tranquil.Unreachable)) ->
-      decline(model, server, ServerUnreachable)
-
-    ServerDescribedItself(server:, result: Error(tranquil.Refused(_, _)))
-    | ServerDescribedItself(server:, result: Error(tranquil.NotUnderstood)) ->
-      decline(model, server, NotTranquil)
-
-    UserChoseAnotherServer -> #(
-      Model(..model, lookup: NotStarted, form: None),
+    ServerPreparedSignUp(result: Error(_)) -> #(
+      Model(..model, step: ChoosingWay(form:, handoff: NotPrepared)),
       effect.none(),
     )
 
+    ServerReturnedHealth(server:, result:) ->
+      record_health(model, server, result)
+
+    ServerDescribedItself(server:, result:) ->
+      record_description(model, server, result)
+
+    UserPickedServer(..)
+    | UserTypedAddress(_)
+    | UserSubmittedAddress
+    | UserTypedName(_)
+    | UserPausedTypingName(..)
+    | UserPickedDomain(_)
+    | ServerReturnedAvailability(..)
+    | UserTypedPassword(_)
+    | UserTypedInviteCode(_)
+    | UserPickedChannel(_)
+    | UserTypedEmail(_)
+    | UserTypedUsername(_)
+    | UserSubmittedAccount
+    | ServerCreatedAccount(_)
+    | ServerClosedSession(_) -> #(model, effect.none())
+  }
+}
+
+fn update_while_filling(
+  model: Model,
+  form: Form,
+  handoff: Handoff,
+  message: Message,
+) -> #(Model, Effect(Message)) {
+  let fill = fn(form, effect) {
+    #(Model(..model, step: FillingForm(form:, handoff:)), effect)
+  }
+
+  case message {
     UserTypedName(name:) -> {
-      use form <- with_form(model)
       let form = Form(..form, name:, availability: NotChecked)
 
-      #(form, case is_valid_name(name) {
+      fill(form, case is_valid_name(name) {
         True ->
           browser.after(
             typing_pause_milliseconds,
@@ -265,145 +339,104 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       })
     }
 
-    UserPausedTypingName(name:, domain:) -> {
-      use form <- with_form(model)
-
+    UserPausedTypingName(name:, domain:) ->
       case form.name == name && form.domain == domain {
-        True -> check_handle(form)
-        False -> #(form, effect.none())
+        True ->
+          fill(Form(..form, availability: CheckingHandle), check_handle(form))
+        False -> #(model, effect.none())
       }
-    }
 
     UserPickedDomain(domain:) -> {
-      use form <- with_form(model)
       let form = Form(..form, domain:, availability: NotChecked)
 
       case is_valid_name(form.name) {
-        True -> check_handle(form)
-        False -> #(form, effect.none())
+        True ->
+          fill(Form(..form, availability: CheckingHandle), check_handle(form))
+        False -> fill(form, effect.none())
       }
     }
 
-    ServerReturnedAvailability(name:, domain:, result:) -> {
-      use form <- with_form(model)
-
+    ServerReturnedAvailability(name:, domain:, result:) ->
       case form.name == name && form.domain == domain, result {
-        True, Ok(availability) -> #(
-          Form(..form, availability: Checked(availability:)),
-          effect.none(),
-        )
-        True, Error(_) -> #(
-          Form(..form, availability: CouldNotCheck),
-          effect.none(),
-        )
-        False, _ -> #(form, effect.none())
+        True, Ok(availability) ->
+          fill(
+            Form(..form, availability: Checked(availability:)),
+            effect.none(),
+          )
+        True, Error(_) ->
+          fill(Form(..form, availability: CouldNotCheck), effect.none())
+        False, _ -> #(model, effect.none())
       }
-    }
 
-    UserTypedPassword(password:) -> {
-      use form <- with_form(model)
+    UserTypedPassword(password:) ->
+      fill(Form(..form, password:, submission: Idle), effect.none())
 
-      #(Form(..form, password:, submission: Idle), effect.none())
-    }
-
-    UserTypedInviteCode(invite_code:) -> {
-      use form <- with_form(model)
-
-      #(Form(..form, invite_code:, submission: Idle), effect.none())
-    }
+    UserTypedInviteCode(invite_code:) ->
+      fill(
+        Form(..form, invite_code: Some(invite_code), submission: Idle),
+        effect.none(),
+      )
 
     UserPickedChannel(name:) -> {
-      use form <- with_form(model)
       let channel =
         list.find(form.description.contact_channels, fn(channel) {
           tranquil.channel_name(channel) == name
         })
 
       case channel {
-        Ok(channel) -> #(
-          Form(..form, channel:, username: "", submission: Idle),
-          effect.none(),
-        )
-        Error(Nil) -> #(form, effect.none())
+        Ok(channel) ->
+          fill(
+            Form(..form, channel:, username: "", submission: Idle),
+            effect.none(),
+          )
+        Error(Nil) -> #(model, effect.none())
       }
     }
 
-    UserTypedEmail(email:) -> {
-      use form <- with_form(model)
+    UserTypedEmail(email:) ->
+      fill(Form(..form, email:, submission: Idle), effect.none())
 
-      #(Form(..form, email:, submission: Idle), effect.none())
-    }
+    UserTypedUsername(username:) ->
+      fill(Form(..form, username:, submission: Idle), effect.none())
 
-    UserTypedUsername(username:) -> {
-      use form <- with_form(model)
-
-      #(Form(..form, username:, submission: Idle), effect.none())
-    }
-
-    UserSubmittedAccount -> {
-      use form <- with_form(model)
-
+    UserSubmittedAccount ->
       case new_account(form) {
-        Ok(new) -> #(
-          Form(..form, submission: Sending),
-          tranquil.submit(
-            form.server,
-            tranquil.create_account(new),
-            ServerCreatedAccount,
-          ),
-        )
-        Error(Nil) -> #(form, effect.none())
-      }
-    }
-
-    ServerCreatedAccount(result: Ok(account)) ->
-      case model.form {
-        Some(form) -> #(
-          Model(
-            ..model,
-            created: Some(Unverified(
-              account: account.account,
-              name: handle.to_string(account.handle),
-              server: form.server,
-              description: form.description,
-              channel: form.channel,
-              password: form.password,
-            )),
-          ),
-          tranquil.close_session(
-            form.server,
-            account.token,
-            ServerClosedSession,
-          ),
-        )
-        None -> #(model, effect.none())
+        Ok(new) ->
+          fill(
+            Form(..form, submission: Sending),
+            tranquil.submit(
+              form.server,
+              tranquil.create_account(new),
+              ServerCreatedAccount,
+            ),
+          )
+        Error(Nil) -> #(model, effect.none())
       }
 
-    ServerCreatedAccount(result: Error(problem)) -> {
-      use form <- with_form(model)
+    ServerCreatedAccount(result: Ok(account)) -> #(
+      Model(
+        ..model,
+        step: Created(Unverified(
+          account: account.account,
+          name: handle.to_string(account.handle),
+          server: form.server,
+          description: form.description,
+          channel: form.channel,
+          password: form.password,
+        )),
+      ),
+      tranquil.close_session(form.server, account.token, ServerClosedSession),
+    )
 
-      #(Form(..form, submission: Refused(problem:)), effect.none())
-    }
+    ServerCreatedAccount(result: Error(problem)) ->
+      fill(Form(..form, submission: Refused(problem:)), effect.none())
 
-    ServerClosedSession(_) -> #(model, effect.none())
+    UserChoseServerPage -> #(
+      Model(..model, step: FillingForm(form:, handoff: NotTried)),
+      prepare_server_page(form),
+    )
 
-    UserChoseServerPage ->
-      case model.form {
-        Some(form) -> #(
-          Model(..model, lookup: NotStarted),
-          browser.await(
-            fn() { session.begin_sign_up(form.server) },
-            ServerPreparedSignUp,
-          ),
-        )
-        None -> #(model, effect.none())
-      }
-
-    UserChoseForm -> {
-      use form <- with_form(model)
-
-      #(Form(..form, is_filling: True), browser.focus(name_id))
-    }
+    UserChoseAnotherServer -> pick_another_server(model)
 
     ServerPreparedSignUp(result: Ok(registration)) -> #(
       model,
@@ -411,23 +444,86 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     ServerPreparedSignUp(result: Error(_)) -> #(
-      Model(..model, lookup: Failed(SignUpNotPrepared)),
+      Model(..model, step: FillingForm(form:, handoff: NotPrepared)),
       effect.none(),
     )
+
+    ServerReturnedHealth(server:, result:) ->
+      record_health(model, server, result)
+
+    ServerDescribedItself(server:, result:) ->
+      record_description(model, server, result)
+
+    UserPickedServer(..)
+    | UserTypedAddress(_)
+    | UserSubmittedAddress
+    | ServerClosedSession(_)
+    | UserChoseForm -> #(model, effect.none())
   }
 }
 
-fn with_form(
-  model: Model,
-  change: fn(Form) -> #(Form, Effect(Message)),
-) -> #(Model, Effect(Message)) {
-  case model.form {
-    Some(form) -> {
-      let #(form, effect) = change(form)
+fn pick_another_server(model: Model) -> #(Model, Effect(Message)) {
+  #(Model(..model, step: PickingServer(lookup: NotStarted)), effect.none())
+}
 
-      #(Model(..model, form: Some(form)), effect)
+fn prepare_server_page(form: Form) -> Effect(Message) {
+  browser.await(
+    fn() { session.begin_sign_up(form.server) },
+    ServerPreparedSignUp,
+  )
+}
+
+fn record_health(
+  model: Model,
+  server: Request(String),
+  result: Result(Software, rsvp.Error(String)),
+) -> #(Model, Effect(Message)) {
+  case result {
+    Ok(Tranquil(_)) -> #(
+      model,
+      tranquil.ask(server, tranquil.server(), ServerDescribedItself(server, _)),
+    )
+
+    Error(rsvp.NetworkError) -> decline(model, server, ServerUnreachable)
+
+    Error(rsvp.HttpError(response)) ->
+      decline(model, server, case response.status {
+        503 -> ServerUnavailable
+        _ -> NotTranquil
+      })
+
+    Ok(OtherSoftware)
+    | Error(rsvp.JsonError(_))
+    | Error(rsvp.UnhandledResponse(_))
+    | Error(rsvp.BadBody)
+    | Error(rsvp.BadUrl(_)) -> decline(model, server, NotTranquil)
+  }
+}
+
+fn record_description(
+  model: Model,
+  server: Request(String),
+  result: Result(Server, tranquil.Problem),
+) -> #(Model, Effect(Message)) {
+  case result {
+    Ok(description) -> {
+      let model = mark(model, server, Offered(description:))
+
+      case model.step {
+        PickingServer(lookup: CheckingServer(server: checking))
+          if checking == server
+        -> offer(model, server, description)
+        PickingServer(_) | ChoosingWay(..) | FillingForm(..) | Created(_) -> #(
+          model,
+          effect.none(),
+        )
+      }
     }
-    None -> #(model, effect.none())
+
+    Error(tranquil.Unreachable) -> decline(model, server, ServerUnreachable)
+
+    Error(tranquil.Refused(_, _)) | Error(tranquil.NotUnderstood) ->
+      decline(model, server, NotTranquil)
   }
 }
 
@@ -450,9 +546,17 @@ fn decline(
 ) -> #(Model, Effect(Message)) {
   let model = mark(model, server, NotOffered(problem:))
 
-  case model.lookup == CheckingServer(server:) {
-    True -> #(Model(..model, lookup: Failed(problem:)), effect.none())
-    False -> #(model, effect.none())
+  case model.step {
+    PickingServer(lookup: CheckingServer(server: checking))
+      if checking == server
+    -> #(
+      Model(..model, step: PickingServer(lookup: Failed(problem:))),
+      effect.none(),
+    )
+    PickingServer(_) | ChoosingWay(..) | FillingForm(..) | Created(_) -> #(
+      model,
+      effect.none(),
+    )
   }
 }
 
@@ -461,27 +565,26 @@ fn offer(
   server: Request(String),
   description: Server,
 ) -> #(Model, Effect(Message)) {
-  let invite_code = case model.invited {
+  let linked = case model.invited {
     Some(Invitation(server: invited, code:)) if invited == server -> Some(code)
     Some(_) | None -> None
   }
 
   case description.handle_domains {
-    [domain, ..] -> #(
-      Model(
-        ..model,
-        lookup: NotStarted,
-        form: Some(Form(
+    [domain, ..] -> {
+      let form =
+        Form(
           server:,
           description:,
-          is_invited: option.is_some(invite_code),
-          is_filling: model.leading == HomesteadFirst
-            || option.is_some(invite_code),
           name: "",
           domain:,
           availability: NotChecked,
           password: "",
-          invite_code: option.unwrap(invite_code, ""),
+          invite_code: case linked, description.invite_required {
+            Some(code), _ -> Some(code)
+            None, True -> Some("")
+            None, False -> None
+          },
           channel: case usable_channels(description) {
             [channel, ..] -> channel
             [] -> tranquil.Email
@@ -489,14 +592,24 @@ fn offer(
           email: "",
           username: "",
           submission: Idle,
-        )),
-      ),
-      browser.focus(case model.leading, invite_code {
-        ServerFirst, None -> server_page_id
-        HomesteadFirst, _ | ServerFirst, Some(_) -> name_id
-      }),
+        )
+
+      case model.leading, linked {
+        ServerFirst, None -> #(
+          Model(..model, step: ChoosingWay(form:, handoff: NotTried)),
+          browser.focus(server_page_id),
+        )
+        HomesteadFirst, _ | ServerFirst, Some(_) -> #(
+          Model(..model, step: FillingForm(form:, handoff: NotTried)),
+          browser.focus(name_id),
+        )
+      }
+    }
+
+    [] -> #(
+      Model(..model, step: PickingServer(lookup: Failed(SignUpNotPrepared))),
+      effect.none(),
     )
-    [] -> #(Model(..model, lookup: Failed(SignUpNotPrepared)), effect.none())
   }
 }
 
@@ -517,14 +630,11 @@ fn check_health(server: Request(String)) -> Effect(Message) {
   )
 }
 
-fn check_handle(form: Form) -> #(Form, Effect(Message)) {
-  #(
-    Form(..form, availability: CheckingHandle),
-    tranquil.ask(
-      form.server,
-      tranquil.handle_availability(form.name, form.domain),
-      ServerReturnedAvailability(form.name, form.domain, _),
-    ),
+fn check_handle(form: Form) -> Effect(Message) {
+  tranquil.ask(
+    form.server,
+    tranquil.handle_availability(form.name, form.domain),
+    ServerReturnedAvailability(form.name, form.domain, _),
   )
 }
 
@@ -581,13 +691,15 @@ fn new_account(form: Form) -> Result(NewAccount, Nil) {
     string.lowercase(form.name) <> "." <> form.domain,
   ))
   use contact <- result.try(contact(form))
-  use invite_code <- result.map(
-    case form.description.invite_required, string.trim(form.invite_code) {
-      True, "" -> Error(Nil)
-      False, "" -> Ok(None)
-      True, code | False, code -> Ok(Some(code))
-    },
-  )
+  use invite_code <- result.map(case form.invite_code {
+    None -> Ok(None)
+    Some(code) ->
+      case string.trim(code), form.description.invite_required {
+        "", True -> Error(Nil)
+        "", False -> Ok(None)
+        code, _ -> Ok(Some(code))
+      }
+  })
 
   NewAccount(handle:, password: form.password, invite_code:, contact:)
 }
@@ -615,15 +727,16 @@ fn contact(form: Form) -> Result(Contact, Nil) {
 }
 
 pub fn view(model: Model) -> Element(Message) {
-  landing.view(case model.form {
-    Some(Form(is_filling: True, ..) as form) -> view_form(form, model.lookup)
-    Some(Form(is_filling: False, ..) as form) -> view_choice(form, model.lookup)
-    None -> view_servers(model)
+  landing.view(case model.step {
+    PickingServer(lookup:) -> view_servers(model, lookup)
+    ChoosingWay(form:, handoff:) -> view_choice(form, handoff)
+    FillingForm(form:, handoff:) -> view_form(form, handoff)
+    Created(_) -> []
   })
 }
 
-fn view_servers(model: Model) -> List(Element(Message)) {
-  let is_checking = case model.lookup {
+fn view_servers(model: Model, lookup: Lookup) -> List(Element(Message)) {
+  let is_checking = case lookup {
     CheckingServer(_) -> True
     NotStarted | Failed(_) -> False
   }
@@ -665,7 +778,7 @@ fn view_servers(model: Model) -> List(Element(Message)) {
       ]),
     ]),
     view_sign_in_link(),
-    view_lookup(model.lookup),
+    view_lookup(lookup),
   ]
 }
 
@@ -705,7 +818,7 @@ fn view_listed(listed: Listed) -> Element(Message) {
   ])
 }
 
-fn view_choice(form: Form, lookup: Lookup) -> List(Element(Message)) {
+fn view_choice(form: Form, handoff: Handoff) -> List(Element(Message)) {
   let server = tranquil.server_name(form.server)
 
   [
@@ -749,11 +862,11 @@ fn view_choice(form: Form, lookup: Lookup) -> List(Element(Message)) {
       ),
     ]),
     view_sign_in_link(),
-    view_lookup(lookup),
+    view_handoff(handoff),
   ]
 }
 
-fn view_form(form: Form, lookup: Lookup) -> List(Element(Message)) {
+fn view_form(form: Form, handoff: Handoff) -> List(Element(Message)) {
   let server = tranquil.server_name(form.server)
   let is_sending = form.submission == Sending
 
@@ -823,7 +936,7 @@ fn view_form(form: Form, lookup: Lookup) -> List(Element(Message)) {
       ),
     ]),
     view_sign_in_link(),
-    view_lookup(lookup),
+    view_handoff(handoff),
   ]
 }
 
@@ -928,15 +1041,15 @@ fn view_password(form: Form, is_sending: Bool) -> List(Element(Message)) {
 }
 
 fn view_invite_code(form: Form, is_sending: Bool) -> List(Element(Message)) {
-  case form.description.invite_required || form.is_invited {
-    False -> []
-    True -> [
+  case form.invite_code {
+    None -> []
+    Some(invite_code) -> [
       html.label([attribute.for("sign-up-invite")], [html.text("Invite code")]),
       html.input([
         attribute.id("sign-up-invite"),
         attribute.name("invite"),
         attribute.type_("text"),
-        attribute.value(form.invite_code),
+        attribute.value(invite_code),
         attribute.autocomplete("off"),
         attribute.autocapitalize("none"),
         attribute.spellcheck(False),
@@ -1060,9 +1173,21 @@ fn view_lookup(lookup: Lookup) -> Element(message) {
             ServerUnavailable -> "That server is unavailable right now."
             NotTranquil ->
               "That isn't a Tranquil server, so accounts can't be created from here."
-            SignUpNotPrepared -> "Couldn't start signing up on that server."
+            SignUpNotPrepared -> not_prepared
           }),
         ]),
+      ]
+    },
+  )
+}
+
+fn view_handoff(handoff: Handoff) -> Element(message) {
+  html.div(
+    [attribute.class("lookup"), attribute.aria_live("polite")],
+    case handoff {
+      NotTried -> []
+      NotPrepared -> [
+        html.h3([attribute.class("attention")], [html.text(not_prepared)]),
       ]
     },
   )
