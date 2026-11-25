@@ -6,6 +6,7 @@ import gleam/option.{None, Some}
 import gleam/time/timestamp.{type Timestamp}
 import homestead/admin
 import homestead/admin/account.{Gathered, Gathering}
+import homestead/admin/invite_code
 import homestead/label.{Active, Event, Label}
 import homestead/tangled
 import homestead/tranquil.{
@@ -171,4 +172,13 @@ pub fn account_states_are_gathered_page_by_page_test() {
       ),
     )
     == Gathered(all: dict.from_list([#(first, Running), #(second, TakenDown)]))
+}
+
+pub fn a_sign_up_link_names_the_server_and_carries_the_code_test() {
+  assert invite_code.sign_up_link(
+      "https://homestead.example",
+      "harbor.example",
+      "harbor-example-abcde-fghij",
+    )
+    == "https://homestead.example/sign-up?server=harbor.example&invite=harbor-example-abcde-fghij"
 }

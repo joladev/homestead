@@ -319,7 +319,7 @@ fn front_page(
     path if path == sign_in.path ->
       Ok(#(AddingAccount(new_sign_in(settings)), effect.none()))
     "/sign-up" -> {
-      let #(sign_up, effect) = sign_up.init(settings)
+      let #(sign_up, effect) = sign_up.init(settings, location)
 
       Ok(#(SigningUp(sign_up:), effect.map(effect, SignUpProducedMessage)))
     }

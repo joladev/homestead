@@ -62,3 +62,7 @@ export function generatePassword() {
     }
   }
 }
+
+export function origin() {
+  return window.location.origin;
+}

@@ -10,6 +10,7 @@ import homestead/browser
 import homestead/landing
 import homestead/password_sign_in.{type Unverified, Unverified}
 import homestead/remote.{type Submission, Idle, Refused, Sending}
+import homestead/route
 import homestead/session
 import homestead/setting.{
   type PasswordEntry, type Settings, HomesteadFirst, ServerFirst,
@@ -51,9 +52,14 @@ pub opaque type Model {
     listed: List(Listed),
     address: String,
     lookup: Lookup,
+    invited: Option(Invitation),
     form: Option(Form),
     created: Option(Unverified),
   )
+}
+
+type Invitation {
+  Invitation(server: Request(String), code: String)
 }
 
 type Listed {
@@ -84,6 +90,7 @@ type Form {
   Form(
     server: Request(String),
     description: Server,
+    is_invited: Bool,
     is_filling: Bool,
     name: String,
     domain: String,
@@ -108,18 +115,41 @@ pub type Rule {
   Rule(requirement: String, is_met: Bool)
 }
 
-pub fn init(settings: Settings) -> #(Model, Effect(Message)) {
-  #(
+pub fn init(settings: Settings, location: Uri) -> #(Model, Effect(Message)) {
+  let address = option.unwrap(route.query(location, "server"), "")
+  let linked = case address {
+    "" -> Error(NotStarted)
+    address ->
+      tranquil.server_address(address)
+      |> result.replace_error(Failed(AddressNotUnderstood))
+  }
+  let model =
     Model(
       leading: settings.password_entry,
       listed: list.map(settings.sign_up_servers, Listed(_, offer: Checking)),
-      address: "",
+      address:,
       lookup: NotStarted,
+      invited: None,
       form: None,
       created: None,
-    ),
-    effect.batch(list.map(settings.sign_up_servers, check_health)),
-  )
+    )
+  let listed_checks = list.map(settings.sign_up_servers, check_health)
+
+  case linked {
+    Ok(server) -> #(
+      Model(
+        ..model,
+        lookup: CheckingServer(server:),
+        invited: route.query(location, "invite")
+          |> option.map(Invitation(server:, code: _)),
+      ),
+      effect.batch(case list.contains(settings.sign_up_servers, server) {
+        True -> listed_checks
+        False -> [check_health(server), ..listed_checks]
+      }),
+    )
+    Error(lookup) -> #(Model(..model, lookup:), effect.batch(listed_checks))
+  }
 }
 
 pub fn created(model: Model) -> Option(Unverified) {
@@ -431,6 +461,11 @@ fn offer(
   server: Request(String),
   description: Server,
 ) -> #(Model, Effect(Message)) {
+  let invite_code = case model.invited {
+    Some(Invitation(server: invited, code:)) if invited == server -> Some(code)
+    Some(_) | None -> None
+  }
+
   case description.handle_domains {
     [domain, ..] -> #(
       Model(
@@ -439,12 +474,14 @@ fn offer(
         form: Some(Form(
           server:,
           description:,
-          is_filling: model.leading == HomesteadFirst,
+          is_invited: option.is_some(invite_code),
+          is_filling: model.leading == HomesteadFirst
+            || option.is_some(invite_code),
           name: "",
           domain:,
           availability: NotChecked,
           password: "",
-          invite_code: "",
+          invite_code: option.unwrap(invite_code, ""),
           channel: case usable_channels(description) {
             [channel, ..] -> channel
             [] -> tranquil.Email
@@ -454,9 +491,9 @@ fn offer(
           submission: Idle,
         )),
       ),
-      browser.focus(case model.leading {
-        ServerFirst -> server_page_id
-        HomesteadFirst -> name_id
+      browser.focus(case model.leading, invite_code {
+        ServerFirst, None -> server_page_id
+        HomesteadFirst, _ | ServerFirst, Some(_) -> name_id
       }),
     )
     [] -> #(Model(..model, lookup: Failed(SignUpNotPrepared)), effect.none())
@@ -547,8 +584,8 @@ fn new_account(form: Form) -> Result(NewAccount, Nil) {
   use invite_code <- result.map(
     case form.description.invite_required, string.trim(form.invite_code) {
       True, "" -> Error(Nil)
-      True, code -> Ok(Some(code))
-      False, _ -> Ok(None)
+      False, "" -> Ok(None)
+      True, code | False, code -> Ok(Some(code))
     },
   )
 
@@ -891,7 +928,7 @@ fn view_password(form: Form, is_sending: Bool) -> List(Element(Message)) {
 }
 
 fn view_invite_code(form: Form, is_sending: Bool) -> List(Element(Message)) {
-  case form.description.invite_required {
+  case form.description.invite_required || form.is_invited {
     False -> []
     True -> [
       html.label([attribute.for("sign-up-invite")], [html.text("Invite code")]),

@@ -214,7 +214,7 @@ pub fn label(route: Route) -> String {
   }
 }
 
-fn query(uri: Uri, name: String) -> Option(String) {
+pub fn query(uri: Uri, name: String) -> Option(String) {
   option.to_result(uri.query, Nil)
   |> result.try(uri.parse_query)
   |> result.try(list.key_find(_, name))

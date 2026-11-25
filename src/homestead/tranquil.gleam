@@ -1389,10 +1389,10 @@ pub fn delete_account_as_admin(account: Did) -> Command(Nil) {
   )
 }
 
-pub fn create_invite_code() -> Command(String) {
+pub fn create_invite_code(uses: Int) -> Command(String) {
   command_returning(
     "com.atproto.server.createInviteCode",
-    json.object([#("useCount", json.int(1))]),
+    json.object([#("useCount", json.int(uses))]),
     decode.at(["code"], decode.string),
   )
 }

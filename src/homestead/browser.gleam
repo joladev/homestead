@@ -35,6 +35,9 @@ pub fn file_decoder() -> Decoder(File) {
 @external(javascript, "./browser_ffi.mjs", "fileName")
 pub fn file_name(file: File) -> String
 
+@external(javascript, "./browser_ffi.mjs", "origin")
+pub fn origin() -> String
+
 pub fn await(
   start: fn() -> Promise(value),
   to_message: fn(value) -> message,
