@@ -9,7 +9,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp.{type Timestamp}
 import gleam/uri
@@ -109,10 +108,10 @@ type Creation {
 pub fn init(
   session: Session,
   settings: Settings,
+  local_offset: Duration,
   location: RepositoryLocation,
 ) -> #(Model, Effect(Message)) {
   let account = session.account(session)
-  let local_offset = calendar.local_offset()
 
   case location {
     Collections -> #(

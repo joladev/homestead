@@ -1,6 +1,7 @@
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/javascript/promise.{type Promise}
+import gleam/time/timestamp.{type Timestamp}
 import lustre/effect.{type Effect}
 
 pub fn focus(id: String) -> Effect(message) {
@@ -35,9 +36,6 @@ pub fn file_decoder() -> Decoder(File) {
 @external(javascript, "./browser_ffi.mjs", "fileName")
 pub fn file_name(file: File) -> String
 
-@external(javascript, "./browser_ffi.mjs", "origin")
-pub fn origin() -> String
-
 pub fn await(
   start: fn() -> Promise(value),
   to_message: fn(value) -> message,
@@ -54,6 +52,12 @@ pub fn copy(
   to_message: fn(Result(Nil, Nil)) -> message,
 ) -> Effect(message) {
   await(fn() { do_copy(text) }, to_message)
+}
+
+pub fn now(to_message: fn(Timestamp) -> message) -> Effect(message) {
+  use dispatch <- effect.from
+
+  dispatch(to_message(timestamp.system_time()))
 }
 
 pub fn generate_password(to_message: fn(String) -> message) -> Effect(message) {

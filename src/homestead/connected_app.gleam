@@ -1,6 +1,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/time/duration.{type Duration}
 import gleam/uri.{Uri}
 import homestead/browser
 import homestead/confirmation
@@ -35,8 +36,12 @@ type Remembered {
   Remembered(apps: Remote(List(RememberedApp)))
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
-  let #(sessions, effect) = sessions.init(session, sessions.ThroughApps)
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
+  let #(sessions, effect) =
+    sessions.init(session, local_offset, sessions.ThroughApps)
 
   #(
     Model(

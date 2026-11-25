@@ -4,7 +4,6 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/browser
 import homestead/confirmation
@@ -53,14 +52,12 @@ type Lookup {
   AddRefused(controller: FoundController, problem: Problem)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   #(
-    Model(
-      session:,
-      local_offset: calendar.local_offset(),
-      controllers: Loading,
-      action: Resting,
-    ),
+    Model(session:, local_offset:, controllers: Loading, action: Resting),
     load(session),
   )
 }

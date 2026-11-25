@@ -1,3 +1,4 @@
+import gleam/time/duration.{type Duration}
 import homestead/layout
 import homestead/session.{type Session}
 import homestead/sign_in_method/authenticator
@@ -20,13 +21,17 @@ pub opaque type Model {
   )
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
-  let #(passkeys, passkeys_effect) = passkey.init(session)
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
+  let #(passkeys, passkeys_effect) = passkey.init(session, local_offset)
   let #(authenticator, authenticator_effect) = authenticator.init(session)
   let #(password, password_effect) = password.init(session)
-  let #(linked_accounts, linked_accounts_effect) = linked_account.init(session)
+  let #(linked_accounts, linked_accounts_effect) =
+    linked_account.init(session, local_offset)
   let #(older_apps, older_apps_effect) = older_app.init(session)
-  let #(devices, devices_effect) = device.init(session)
+  let #(devices, devices_effect) = device.init(session, local_offset)
 
   #(
     Model(

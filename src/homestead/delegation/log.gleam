@@ -3,7 +3,6 @@ import at/handle.{type Handle}
 import gleam/list
 import gleam/option
 import gleam/result
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/date
 import homestead/identity
@@ -33,11 +32,14 @@ type More {
   MoreRefused(problem: Problem)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
-      local_offset: calendar.local_offset(),
+      local_offset:,
       entries: Loading,
       total: 0,
       more: NotLoadingMore,

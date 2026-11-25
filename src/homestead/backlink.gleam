@@ -8,7 +8,6 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/constellation.{type Link, type Linking}
 import homestead/date
@@ -54,10 +53,10 @@ pub type Profile {
 pub fn init(
   session: Session,
   settings: Settings,
+  local_offset: Duration,
   location: BacklinkLocation,
 ) -> #(Model, Effect(Message)) {
   let account = session.account(session)
-  let local_offset = calendar.local_offset()
 
   case location {
     Sources -> #(

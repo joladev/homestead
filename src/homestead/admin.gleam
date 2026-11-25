@@ -5,6 +5,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/order.{type Order}
 import gleam/result
 import gleam/string
+import gleam/time/duration.{type Duration}
+import gleam/time/timestamp.{type Timestamp}
 import homestead/admin/account
 import homestead/admin/invite_code
 import homestead/admin/server_page
@@ -41,13 +43,17 @@ pub opaque type Model {
 pub fn init(
   session: Session,
   settings: Settings,
+  local_offset: Duration,
+  origin: String,
+  now: Timestamp,
   page: AdminPage,
 ) -> #(Model, Effect(Message)) {
   case page {
     route.Accounts -> {
       let #(accounts, accounts_effect) =
-        account.init(session, settings, account.Everyone)
-      let #(invite_codes, invite_codes_effect) = invite_code.init(session)
+        account.init(session, settings, local_offset, now, account.Everyone)
+      let #(invite_codes, invite_codes_effect) =
+        invite_code.init(session, origin, local_offset)
 
       #(
         AccountsPage(accounts:, invite_codes:),
@@ -60,7 +66,7 @@ pub fn init(
 
     route.Flagged -> {
       let #(accounts, accounts_effect) =
-        account.init(session, settings, account.Flagged)
+        account.init(session, settings, local_offset, now, account.Flagged)
 
       #(
         FlaggedPage(accounts:),

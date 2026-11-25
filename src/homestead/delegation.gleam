@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/time/duration.{type Duration}
 import homestead/delegation/controlled
 import homestead/delegation/controller
 import homestead/delegation/log
@@ -18,10 +19,14 @@ pub opaque type Model {
   )
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
-  let #(controllers, controllers_effect) = controller.init(session)
-  let #(controlled, controlled_effect) = controlled.init(session)
-  let #(log, log_effect) = log.init(session)
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
+  let #(controllers, controllers_effect) =
+    controller.init(session, local_offset)
+  let #(controlled, controlled_effect) = controlled.init(session, local_offset)
+  let #(log, log_effect) = log.init(session, local_offset)
 
   #(
     Model(levels: Loading, controllers:, controlled:, log:),

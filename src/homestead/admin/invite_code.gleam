@@ -2,7 +2,6 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp
 import gleam/uri
@@ -53,12 +52,16 @@ type Copied {
   CopyFailed(text: String)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  origin: String,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
-      origin: browser.origin(),
-      local_offset: calendar.local_offset(),
+      origin:,
+      local_offset:,
       is_required: Loading,
       codes: Loading,
       created: None,

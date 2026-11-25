@@ -3,6 +3,8 @@ import gleam/function
 import gleam/http/request
 import gleam/javascript/promise
 import gleam/option.{None, Some}
+import gleam/time/calendar
+import gleam/time/duration.{type Duration}
 import gleam/uri.{type Uri, Uri}
 import homestead/about
 import homestead/browser
@@ -43,7 +45,12 @@ fn run(settings: Settings, location: Uri) -> Nil {
   )
 
   let app = lustre.application(init, update, view)
-  let assert Ok(_) = lustre.start(app, "#app", Start(settings:, location:))
+  let assert Ok(_) =
+    lustre.start(
+      app,
+      "#app",
+      Start(settings:, location:, local_offset: calendar.local_offset()),
+    )
 
   Nil
 }
@@ -72,11 +79,16 @@ fn view_unreadable_settings() -> Element(message) {
 }
 
 type Start {
-  Start(settings: Settings, location: Uri)
+  Start(settings: Settings, location: Uri, local_offset: Duration)
 }
 
 type Model {
-  Model(settings: Settings, state: State)
+  Model(
+    settings: Settings,
+    local_offset: Duration,
+    origin: String,
+    state: State,
+  )
 }
 
 type State {
@@ -90,7 +102,16 @@ type State {
 }
 
 fn init(start: Start) -> #(Model, Effect(Message)) {
-  let Start(settings:, location:) = start
+  let Start(settings:, location:, local_offset:) = start
+  let origin =
+    uri.to_string(
+      Uri(
+        ..uri.empty,
+        scheme: location.scheme,
+        host: location.host,
+        port: location.port,
+      ),
+    )
 
   let #(state, effect) = case
     location.path == session.callback_path,
@@ -105,7 +126,7 @@ fn init(start: Start) -> #(Model, Effect(Message)) {
   }
 
   #(
-    Model(settings:, state:),
+    Model(settings:, local_offset:, origin:, state:),
     effect.batch([modem.init(UserNavigatedTo), effect]),
   )
 }
@@ -278,7 +299,16 @@ fn start_dashboard(
   route: Route,
 ) -> #(Model, Effect(Message)) {
   let #(model, effect) =
-    open_dashboard(model, dashboard.init(session, model.settings, route))
+    open_dashboard(
+      model,
+      dashboard.init(
+        session,
+        model.settings,
+        model.local_offset,
+        model.origin,
+        route,
+      ),
+    )
 
   #(model, effect.batch([watch(session), effect]))
 }

@@ -6,7 +6,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp.{type Timestamp}
 import homestead/browser
@@ -54,7 +53,7 @@ pub opaque type Model {
 }
 
 type Load {
-  Load(started: Timestamp)
+  Load(started: Timestamp, attempt: Int)
 }
 
 pub type Gathering(value) {
@@ -134,16 +133,17 @@ type Listed {
 pub fn init(
   session: Session,
   settings: Settings,
+  local_offset: Duration,
+  now: Timestamp,
   listing: Listing,
 ) -> #(Model, Effect(Message)) {
-  let now = timestamp.system_time()
-  let load = Load(started: now)
+  let load = Load(started: now, attempt: 0)
 
   #(
     Model(
       session:,
       settings:,
-      local_offset: calendar.local_offset(),
+      local_offset:,
       load:,
       now:,
       typed: "",
@@ -311,7 +311,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       case model.flags, model.accounts, model.states {
         LookupFailed, Gathered(_), Gathered(all:) ->
           look_up_labels(
-            Model(..model, load: Load(started: timestamp.system_time())),
+            Model(
+              ..model,
+              load: Load(..model.load, attempt: model.load.attempt + 1),
+            ),
             dict.keys(all),
           )
         LookupFailed, _, _

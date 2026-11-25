@@ -7,7 +7,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/uri
 import homestead/browser
@@ -60,7 +59,11 @@ type Copied {
   CopyFailed
 }
 
-pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  settings: Settings,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   let account = session.account(session)
   let #(history, load_history) = case
     identity.history_request(settings.directory, account)
@@ -86,7 +89,7 @@ pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
   #(
     Model(
       account:,
-      local_offset: calendar.local_offset(),
+      local_offset:,
       identity: Loading,
       history:,
       copied: NothingCopied,

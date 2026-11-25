@@ -1,6 +1,5 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/browser
 import homestead/confirmation
@@ -44,12 +43,16 @@ type Target {
   OtherSessions
 }
 
-pub fn init(session: Session, filter: Filter) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+  filter: Filter,
+) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
       filter:,
-      local_offset: calendar.local_offset(),
+      local_offset:,
       sessions: Loading,
       action: Idle,
       has_signed_out: False,

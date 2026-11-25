@@ -5,6 +5,8 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/time/duration.{type Duration}
+import gleam/time/timestamp.{type Timestamp}
 import homestead/admin
 import homestead/app_password
 import homestead/backlink
@@ -43,6 +45,8 @@ pub opaque type Model {
   Model(
     session: Session,
     settings: Settings,
+    local_offset: Duration,
+    origin: String,
     route: Route,
     page: Page,
     account: Remote(tranquil.Account),
@@ -76,16 +80,18 @@ type Page {
 pub fn init(
   session: Session,
   settings: Settings,
+  local_offset: Duration,
+  origin: String,
   route: Route,
 ) -> #(Model, Effect(Message)) {
-  let #(page, effect) = open(session, settings, route)
-
   #(
     Model(
       session:,
       settings:,
+      local_offset:,
+      origin:,
       route:,
-      page:,
+      page: PlaceholderPage,
       account: Loading,
       other_accounts: list.filter(session.stored_accounts(), fn(account) {
         account.account != session.account(session)
@@ -96,16 +102,18 @@ pub fn init(
     ),
     effect.batch([
       tranquil.load(session, tranquil.account(), ServerReturnedAccount),
-      effect,
+      browser.now(BrowserReturnedTime(route, _)),
     ]),
   )
 }
 
 pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
   use <- bool.guard(is_closed(route, model.account), #(model, show_overview()))
-  let #(page, effect) = open(model.session, model.settings, route)
 
-  #(Model(..model, route:, page:, is_menu_open: False), effect)
+  #(
+    Model(..model, route:, page: PlaceholderPage, is_menu_open: False),
+    browser.now(BrowserReturnedTime(route, _)),
+  )
 }
 
 fn is_closed(route: Route, account: Remote(tranquil.Account)) -> Bool {
@@ -129,10 +137,12 @@ fn show_overview() -> Effect(Message) {
 }
 
 fn open(
-  session: Session,
-  settings: Settings,
+  model: Model,
   route: Route,
+  now: Timestamp,
 ) -> #(Page, Effect(Message)) {
+  let Model(session:, settings:, local_offset:, origin:, ..) = model
+
   case route {
     Overview -> {
       let #(page, effect) = overview.init(session, settings)
@@ -141,13 +151,14 @@ fn open(
     }
 
     Access(Sessions) -> {
-      let #(page, effect) = sessions.init(session, sessions.Everything)
+      let #(page, effect) =
+        sessions.init(session, local_offset, sessions.Everything)
 
       #(SessionsPage(page), effect.map(effect, SessionsProducedMessage))
     }
 
     Access(ConnectedApps) -> {
-      let #(page, effect) = connected_app.init(session)
+      let #(page, effect) = connected_app.init(session, local_offset)
 
       #(
         ConnectedAppsPage(page),
@@ -156,7 +167,7 @@ fn open(
     }
 
     Access(AppPasswords) -> {
-      let #(page, effect) = app_password.init(session)
+      let #(page, effect) = app_password.init(session, local_offset)
 
       #(AppPasswordsPage(page), effect.map(effect, AppPasswordsProducedMessage))
     }
@@ -168,7 +179,7 @@ fn open(
     }
 
     Account(route.Notifications) -> {
-      let #(page, effect) = notification.init(session)
+      let #(page, effect) = notification.init(session, local_offset)
 
       #(
         NotificationsPage(page),
@@ -177,7 +188,7 @@ fn open(
     }
 
     Access(SignInMethods) -> {
-      let #(page, effect) = sign_in_method.init(session)
+      let #(page, effect) = sign_in_method.init(session, local_offset)
 
       #(
         SignInMethodsPage(page),
@@ -201,7 +212,7 @@ fn open(
     }
 
     Data(route.Labels) -> {
-      let #(page, effect) = label.init(session, settings)
+      let #(page, effect) = label.init(session, settings, local_offset, now)
 
       #(LabelsPage(page), effect.map(effect, LabelsProducedMessage))
     }
@@ -213,25 +224,28 @@ fn open(
     }
 
     Data(route.Backlinks(location:)) -> {
-      let #(page, effect) = backlink.init(session, settings, location)
+      let #(page, effect) =
+        backlink.init(session, settings, local_offset, location)
 
       #(BacklinkPage(page), effect.map(effect, BacklinkProducedMessage))
     }
 
     Data(route.Repository(location:)) -> {
-      let #(page, effect) = repository.init(session, settings, location)
+      let #(page, effect) =
+        repository.init(session, settings, local_offset, location)
 
       #(RepositoryPage(page), effect.map(effect, RepositoryProducedMessage))
     }
 
     Advanced(route.Delegation) -> {
-      let #(page, effect) = delegation.init(session)
+      let #(page, effect) = delegation.init(session, local_offset)
 
       #(DelegationPage(page), effect.map(effect, DelegationProducedMessage))
     }
 
     Advanced(route.IdentityDocument) -> {
-      let #(page, effect) = identity_document.init(session, settings)
+      let #(page, effect) =
+        identity_document.init(session, settings, local_offset)
 
       #(
         IdentityDocumentPage(page),
@@ -240,7 +254,8 @@ fn open(
     }
 
     Admin(page) -> {
-      let #(page, effect) = admin.init(session, settings, page)
+      let #(page, effect) =
+        admin.init(session, settings, local_offset, origin, now, page)
 
       #(AdminPage(page), effect.map(effect, AdminProducedMessage))
     }
@@ -283,6 +298,7 @@ pub fn departure(model: Model) -> Option(Departure) {
 
 pub opaque type Message {
   ServerReturnedAccount(result: Result(tranquil.Account, Problem))
+  BrowserReturnedTime(route: Route, now: Timestamp)
   OverviewProducedMessage(overview.Message)
   SessionsProducedMessage(sessions.Message)
   ConnectedAppsProducedMessage(connected_app.Message)
@@ -327,6 +343,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ]),
       )
     }
+
+    BrowserReturnedTime(route:, now:), _ ->
+      case route == model.route {
+        True -> {
+          let #(page, effect) = open(model, route, now)
+
+          #(Model(..model, page:), effect)
+        }
+        False -> #(model, effect.none())
+      }
 
     OverviewProducedMessage(message), OverviewPage(page) -> {
       let #(page, effect) = overview.update(page, message)

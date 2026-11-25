@@ -4,7 +4,6 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/uri.{type Uri}
 import homestead/browser
@@ -54,14 +53,12 @@ type Submission {
   SubmissionRefused(problem: Problem)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   #(
-    Model(
-      session:,
-      local_offset: calendar.local_offset(),
-      accounts: Loading,
-      action: Resting,
-    ),
+    Model(session:, local_offset:, accounts: Loading, action: Resting),
     load(session),
   )
 }

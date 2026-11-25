@@ -11,7 +11,6 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp.{type Timestamp}
 import gleam/uri.{type Uri}
@@ -64,16 +63,20 @@ type Found {
   Found(events: List(Event), unreadable: Int)
 }
 
-pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  settings: Settings,
+  local_offset: Duration,
+  opened: Timestamp,
+) -> #(Model, Effect(Message)) {
   let account = session.account(session)
-  let opened = timestamp.system_time()
   let subjects = subjects(account)
 
   #(
     Model(
       account:,
       settings:,
-      local_offset: calendar.local_offset(),
+      local_offset:,
       opened:,
       relay: Asking(subjects: list.length(subjects)),
       labelers: dict.new(),

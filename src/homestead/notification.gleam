@@ -2,7 +2,6 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/date
 import homestead/layout
@@ -46,11 +45,14 @@ type Saving {
   SaveRefused(problem: Problem)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
-      local_offset: calendar.local_offset(),
+      local_offset:,
       login_alerts: Loading,
       saving: NotSaving,
       language: Loading,

@@ -1,7 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import gleam/time/calendar
 import gleam/time/duration.{type Duration}
 import homestead/browser
 import homestead/confirmation
@@ -36,14 +35,12 @@ type Action {
   Refused(problem: Problem)
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  local_offset: Duration,
+) -> #(Model, Effect(Message)) {
   #(
-    Model(
-      session:,
-      local_offset: calendar.local_offset(),
-      passkeys: Loading,
-      action: Resting,
-    ),
+    Model(session:, local_offset:, passkeys: Loading, action: Resting),
     load(session),
   )
 }
