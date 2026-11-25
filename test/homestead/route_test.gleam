@@ -3,8 +3,8 @@ import gleam/uri
 import homestead/route.{
   Access, Account, Admin, Advanced, AppPasswords, Collections, ConnectedApps,
   Data, Delegation, DeleteAccount, Export, IdentityDocument, NewRecord, NotFound,
-  Notifications, Overview, Profile, Record, Records, Repository, Sessions,
-  SignInMethods,
+  Notifications, Overview, Profile, Record, Records, Relays, Repository,
+  Sessions, SignInMethods,
 }
 
 pub fn every_page_survives_the_round_trip_through_its_path_test() {
@@ -25,6 +25,7 @@ pub fn every_page_survives_the_round_trip_through_its_path_test() {
     ),
     Data(Repository(NewRecord(collection: ""))),
     Data(Repository(NewRecord(collection: "app.bsky.feed.post"))),
+    Data(Relays),
     Advanced(Delegation),
     Advanced(IdentityDocument),
     Admin,

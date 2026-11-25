@@ -6,6 +6,7 @@
   "appview": "{{env "HOMESTEAD_APPVIEW"}}",
   "labelRelay": "{{env "HOMESTEAD_LABEL_RELAY"}}",
   "dns": "{{env "HOMESTEAD_DNS"}}",
+  "relays": "{{env "HOMESTEAD_RELAYS"}}",
   "signUpServers": "{{env "HOMESTEAD_SIGNUP_SERVERS"}}",
   "passwordEntry": "{{env "HOMESTEAD_PASSWORD_ENTRY"}}"
 }

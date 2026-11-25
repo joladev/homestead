@@ -13,6 +13,7 @@ pub fn a_service_that_is_not_set_uses_its_default_test() {
   assert settings.dns.host == "dns.example"
   assert settings.dns.path == "/query"
   assert settings.sign_up_servers == []
+  assert list.length(settings.relays) == 7
   assert settings.password_entry == ServerFirst
 }
 
@@ -22,8 +23,11 @@ pub fn a_malformed_address_is_refused_test() {
 }
 
 pub fn sign_up_servers_are_a_comma_separated_list_test() {
-  let body = "{\"signUpServers\":\"harbor.example, https://cove.example\"}"
+  let body =
+    "{\"signUpServers\":\"harbor.example, https://cove.example\",\"relays\":\"relay.example\"}"
   let assert Ok(settings) = json.parse(body, setting.decoder())
+
+  assert list.map(settings.relays, tranquil.server_name) == ["relay.example"]
 
   assert list.map(settings.sign_up_servers, tranquil.server_name)
     == ["harbor.example", "cove.example"]

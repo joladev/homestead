@@ -1356,6 +1356,12 @@ input:disabled {
     border-color: var(--good);
 }
 
+@media (min-width: 721px) {
+    .relays .row {
+        grid-template-columns: 320px minmax(0, 1fr) auto;
+    }
+}
+
 @media (max-width: 720px) {
     .top-bar {
         position: relative;

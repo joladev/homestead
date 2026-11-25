@@ -23,7 +23,7 @@ pub const scopes = [
 ]
 
 pub opaque type Session {
-  Session(agent: Agent, account: Did)
+  Session(agent: Agent, account: Did, server: Request(String))
 }
 
 type Agent
@@ -134,10 +134,16 @@ pub fn switch_to(account: Did) -> Promise(Result(Session, Problem)) {
 
 fn checked(agent: Result(Agent, String)) -> Result(Session, Problem) {
   use agent <- result.try(result.map_error(agent, problem))
+  use account <- result.try(
+    did.from_string(do_account(agent))
+    |> result.replace_error(Failed(error: "InvalidAccount")),
+  )
+  use server <- result.map(
+    request.to(do_origin(agent))
+    |> result.replace_error(Failed(error: "InvalidServer")),
+  )
 
-  did.from_string(do_account(agent))
-  |> result.map(Session(agent:, account: _))
-  |> result.replace_error(Failed(error: "InvalidAccount"))
+  Session(agent:, account:, server:)
 }
 
 pub fn when_expired(session: Session, do: fn() -> Nil) -> Nil {
@@ -245,6 +251,10 @@ pub fn account(session: Session) -> Did {
 
 @external(javascript, "./session_ffi.mjs", "account")
 fn do_account(agent: Agent) -> String
+
+pub fn server_address(session: Session) -> Request(String) {
+  session.server
+}
 
 pub fn server(session: Session) -> String {
   do_server(session.agent)

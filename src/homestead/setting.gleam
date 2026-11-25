@@ -18,6 +18,7 @@ pub type Settings {
     appview: Request(String),
     label_relay: Request(String),
     dns: Request(String),
+    relays: List(Request(String)),
     sign_up_servers: List(Request(String)),
     password_entry: PasswordEntry,
   )
@@ -61,6 +62,11 @@ pub fn decoder() -> Decoder(Settings) {
     "dns",
     at("dns10.quad9.net") |> request.set_path("/dns-query"),
   )
+  use relays <- decode.optional_field(
+    "relays",
+    default_relays(),
+    relays_decoder(),
+  )
   use sign_up_servers <- decode.optional_field(
     "signUpServers",
     [],
@@ -80,6 +86,7 @@ pub fn decoder() -> Decoder(Settings) {
     appview:,
     label_relay:,
     dns:,
+    relays:,
     sign_up_servers:,
     password_entry:,
   ))
@@ -92,6 +99,27 @@ fn password_entry_decoder() -> Decoder(PasswordEntry) {
     "" | "server" -> decode.success(ServerFirst)
     "homestead" -> decode.success(HomesteadFirst)
     _ -> decode.failure(ServerFirst, "PasswordEntry")
+  }
+}
+
+fn default_relays() -> List(Request(String)) {
+  [
+    at("bsky.network"),
+    at("relay.fire.hose.cam"),
+    at("relay3.fr.hose.cam"),
+    at("northamerica.firehose.network"),
+    at("europe.firehose.network"),
+    at("asia.firehose.network"),
+    at("relay.upcloud.world"),
+  ]
+}
+
+fn relays_decoder() -> Decoder(List(Request(String))) {
+  use relays <- decode.map(servers_decoder())
+
+  case relays {
+    [] -> default_relays()
+    [_, ..] -> relays
   }
 }
 

@@ -18,6 +18,7 @@ import homestead/label
 import homestead/notification
 import homestead/overview
 import homestead/profile
+import homestead/relay
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/repository
 import homestead/route.{
@@ -62,6 +63,7 @@ type Page {
   SignInMethodsPage(sign_in_method.Model)
   ExportPage(export.Model)
   LabelsPage(label.Model)
+  RelaysPage(relay.Model)
   BacklinkPage(backlink.Model)
   DeleteAccountPage(delete_account.Model)
   RepositoryPage(repository.Model)
@@ -195,6 +197,12 @@ fn open(
       #(LabelsPage(page), effect.map(effect, LabelsProducedMessage))
     }
 
+    Data(route.Relays) -> {
+      let #(page, effect) = relay.init(session, settings)
+
+      #(RelaysPage(page), effect.map(effect, RelaysProducedMessage))
+    }
+
     Data(route.Backlinks(location:)) -> {
       let #(page, effect) = backlink.init(session, settings, location)
 
@@ -253,6 +261,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     | None, SignInMethodsPage(_)
     | None, ExportPage(_)
     | None, LabelsPage(_)
+    | None, RelaysPage(_)
     | None, BacklinkPage(_)
     | None, RepositoryPage(_)
     | None, DelegationPage(_)
@@ -274,6 +283,7 @@ pub opaque type Message {
   SignInMethodsProducedMessage(sign_in_method.Message)
   ExportProducedMessage(export.Message)
   LabelsProducedMessage(label.Message)
+  RelaysProducedMessage(relay.Message)
   BacklinkProducedMessage(backlink.Message)
   DeleteAccountProducedMessage(delete_account.Message)
   RepositoryProducedMessage(repository.Message)
@@ -400,6 +410,15 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    RelaysProducedMessage(message), RelaysPage(page) -> {
+      let #(page, effect) = relay.update(page, message)
+
+      #(
+        Model(..model, page: RelaysPage(page)),
+        effect.map(effect, RelaysProducedMessage),
+      )
+    }
+
     LabelsProducedMessage(message), LabelsPage(page) -> {
       let #(page, effect) = label.update(page, message)
 
@@ -463,6 +482,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | DeleteAccountProducedMessage(_), _
     | ExportProducedMessage(_), _
     | LabelsProducedMessage(_), _
+    | RelaysProducedMessage(_), _
     | BacklinkProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
@@ -600,6 +620,8 @@ pub fn view(model: Model) -> Element(Message) {
         export.view(page) |> element.map(ExportProducedMessage)
 
       LabelsPage(page) -> label.view(page) |> element.map(LabelsProducedMessage)
+
+      RelaysPage(page) -> relay.view(page) |> element.map(RelaysProducedMessage)
 
       BacklinkPage(page) ->
         backlink.view(page) |> element.map(BacklinkProducedMessage)

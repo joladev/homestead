@@ -7,10 +7,11 @@ import gleam/result
 import gleam/string
 import homestead/browser
 import homestead/layout.{type Tone, Plain, Warning}
+import homestead/relay.{Summary}
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/route.{
-  type Route, Access, Account, ConnectedApps, Data, Export, Profile, Sessions,
-  SignInMethods,
+  type Route, Access, Account, ConnectedApps, Data, Export, Profile, Relays,
+  Sessions, SignInMethods,
 }
 import homestead/session.{type Session}
 import homestead/setting.{type Settings}
@@ -33,6 +34,7 @@ pub opaque type Model {
     has_password: Remote(Bool),
     sessions: Remote(List(ActiveSession)),
     verified_handle: Remote(Option(Handle)),
+    relays: relay.Checks,
     copying: Copying,
   )
 }
@@ -48,6 +50,7 @@ type Row {
 }
 
 pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
+  let #(relays, relay_checks) = relay.check(session, settings)
   let model =
     Model(
       display_name: Loading,
@@ -56,6 +59,7 @@ pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
       has_password: Loading,
       sessions: Loading,
       verified_handle: Loading,
+      relays:,
       copying: NotCopied,
     )
   let display_name = tranquil.display_name(session.account(session))
@@ -80,6 +84,7 @@ pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
         slingshot.identity_request(settings.slingshot, session.account(session)),
         rsvp.expect_json(slingshot.handle_decoder(), SlingshotReturnedHandle),
       ),
+      effect.map(relay_checks, RelayReturnedAnswer),
     ]),
   )
 }
@@ -91,6 +96,7 @@ pub opaque type Message {
   ServerReturnedPasswordStatus(result: Result(Bool, Problem))
   ServerReturnedSessions(result: Result(List(ActiveSession), Problem))
   SlingshotReturnedHandle(result: Result(Handle, rsvp.Error(String)))
+  RelayReturnedAnswer(answer: relay.Answer)
   UserClickedCopy(text: String)
   BrowserCopiedText(result: Result(Nil, Nil))
 }
@@ -137,6 +143,11 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
 
+    RelayReturnedAnswer(answer:) -> #(
+      Model(..model, relays: relay.record(model.relays, answer)),
+      effect.none(),
+    )
+
     UserClickedCopy(text:) -> #(model, browser.copy(text, BrowserCopiedText))
 
     BrowserCopiedText(result: Ok(Nil)) -> #(
@@ -180,6 +191,7 @@ fn rows(
     ]
   }
 
+  let relays = relay.summary(model.relays)
   let resolves = {
     use account <- remote.then(account)
     use verified <- remote.map(model.verified_handle)
@@ -202,6 +214,16 @@ fn rows(
       }),
       link: "Details",
       to: Account(Profile),
+    ),
+    Row(
+      label: "Relays",
+      tone: case relays {
+        Loaded(value: Summary(current:, total:)) if current < total -> Warning
+        Loading | Loaded(_) | Failed(_) -> Plain
+      },
+      facts: remote.map(relays, relay.describe),
+      link: "Review",
+      to: Data(Relays),
     ),
     Row(
       label: "Sign-in",

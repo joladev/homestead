@@ -25,12 +25,16 @@ for name in HOMESTEAD_PLC HOMESTEAD_TYPEAHEAD HOMESTEAD_SLINGSHOT HOMESTEAD_CONS
   esac
 done
 
-case "${HOMESTEAD_SIGNUP_SERVERS:-}" in
-  *[!A-Za-z0-9.:/_~,\ -]*)
-    echo "HOMESTEAD_SIGNUP_SERVERS must be a comma-separated list of server names: $HOMESTEAD_SIGNUP_SERVERS" >&2
-    exit 1
-    ;;
-esac
+for name in HOMESTEAD_RELAYS HOMESTEAD_SIGNUP_SERVERS; do
+  eval "servers=\${$name:-}"
+
+  case "$servers" in
+    *[!A-Za-z0-9.:/_~,\ -]*)
+      echo "$name must be a comma-separated list of server names: $servers" >&2
+      exit 1
+      ;;
+  esac
+done
 
 case "${HOMESTEAD_PASSWORD_ENTRY:-}" in
   "" | server | homestead) ;;

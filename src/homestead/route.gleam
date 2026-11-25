@@ -32,6 +32,7 @@ pub type DataPage {
   Repository(location: RepositoryLocation)
   Labels
   Backlinks(location: BacklinkLocation)
+  Relays
 }
 
 pub type BacklinkLocation {
@@ -81,6 +82,7 @@ pub const sections = [
       Data(Repository(Collections)),
       Data(Labels),
       Data(Backlinks(Sources)),
+      Data(Relays),
     ],
   ),
   Section(
@@ -129,6 +131,7 @@ pub fn from_uri(uri: Uri) -> Route {
           Some(_), None | None, _ -> Sources
         }),
       )
+    ["data", "relays"] -> Data(Relays)
     ["advanced", "delegation"] -> Advanced(Delegation)
     ["advanced", "identity"] -> Advanced(IdentityDocument)
     ["admin"] -> Admin
@@ -162,6 +165,7 @@ pub fn to_path(route: Route) -> String {
     Data(Backlinks(Source(collection:, path:))) ->
       "/data/backlinks?"
       <> uri.query_to_string([#("collection", collection), #("path", path)])
+    Data(Relays) -> "/data/relays"
     Advanced(Delegation) -> "/advanced/delegation"
     Advanced(IdentityDocument) -> "/advanced/identity"
     Admin -> "/admin"
@@ -183,6 +187,7 @@ pub fn label(route: Route) -> String {
     Data(Repository(_)) -> "Repository"
     Data(Labels) -> "Labels"
     Data(Backlinks(_)) -> "Backlinks"
+    Data(Relays) -> "Relays"
     Advanced(Delegation) -> "Delegation"
     Advanced(IdentityDocument) -> "Identity document"
     Admin -> "Admin"
@@ -206,6 +211,7 @@ pub fn page(route: Route) -> Route {
     | Access(_)
     | Data(Export)
     | Data(Labels)
+    | Data(Relays)
     | Advanced(_)
     | Admin
     | NotFound(_) -> route
