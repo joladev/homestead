@@ -13,7 +13,7 @@ pub fn a_service_that_is_not_set_uses_its_default_test() {
   assert settings.dns.host == "dns.example"
   assert settings.dns.path == "/query"
   assert settings.sign_up_servers == []
-  assert list.length(settings.relays) == 7
+  assert list.length(settings.relays) == 6
   assert settings.password_entry == ServerFirst
 }
 

@@ -110,7 +110,6 @@ fn default_relays() -> List(Request(String)) {
     at("northamerica.firehose.network"),
     at("europe.firehose.network"),
     at("asia.firehose.network"),
-    at("relay.upcloud.world"),
   ]
 }
 
