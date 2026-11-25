@@ -68,7 +68,7 @@ type Flags {
   Awaited
   LookingUp(events: List(Event), running: Int)
   Found(by_account: Dict(Did, List(Label)))
-  LookupFailed(problem: Problem)
+  LookupFailed
 }
 
 type Opened {
@@ -126,6 +126,11 @@ type Shown {
   )
 }
 
+type Listed {
+  Listed(shown: Shown)
+  FlagsUnavailable
+}
+
 pub fn init(
   session: Session,
   settings: Settings,
@@ -174,6 +179,7 @@ pub opaque type Message {
     remaining: List(List(Did)),
     result: Result(Response(String), rsvp.Error(String)),
   )
+  UserClickedTryAgain
   UserTypedSearch(text: String)
   UserToggledAccount(account: ListedAccount)
   ServerReturnedDetails(account: Did, result: Result(AccountDetails, Problem))
@@ -246,7 +252,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
             Gathered(_), NotWanted
             | Gathered(_), LookingUp(..)
             | Gathered(_), Found(_)
-            | Gathered(_), LookupFailed(_)
+            | Gathered(_), LookupFailed
             | Gathering(_), _
             | NotGathered(_), _
             -> #(model, effect.none())
@@ -255,11 +261,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     ServerReturnedStates(result: Error(problem), ..) -> #(
-      Model(..model, states: NotGathered(problem:), flags: case model.flags {
-        NotWanted -> NotWanted
-        Awaited | LookingUp(..) | Found(_) | LookupFailed(_) ->
-          LookupFailed(problem:)
-      }),
+      Model(..model, states: NotGathered(problem:)),
       effect.none(),
     )
 
@@ -297,15 +299,27 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               )
             }
             Error(Nil), _ -> #(
-              Model(..model, flags: LookupFailed(tranquil.Unreachable)),
+              Model(..model, flags: LookupFailed),
               effect.none(),
             )
           }
         }
-        NotWanted | Awaited | Found(_) | LookupFailed(_) -> #(
-          model,
-          effect.none(),
-        )
+        NotWanted | Awaited | Found(_) | LookupFailed -> #(model, effect.none())
+      }
+
+    UserClickedTryAgain ->
+      case model.flags, model.accounts, model.states {
+        LookupFailed, Gathered(_), Gathered(all:) ->
+          look_up_labels(
+            Model(..model, load: Load(started: timestamp.system_time())),
+            dict.keys(all),
+          )
+        LookupFailed, _, _
+        | NotWanted, _, _
+        | Awaited, _, _
+        | LookingUp(..), _, _
+        | Found(_), _, _
+        -> #(model, effect.none())
       }
 
     UserTypedSearch(text:) -> #(Model(..model, typed: text), effect.none())
@@ -777,24 +791,28 @@ fn settled(gathering: Gathering(value)) -> Remote(value) {
 }
 
 pub fn view(model: Model) -> List(Element(Message)) {
-  let shown = {
+  let listed = {
     use everyone <- remote.then(settled(model.accounts))
     use states <- remote.then(settled(model.states))
 
     case model.flags {
       NotWanted ->
-        Loaded(Shown(everyone:, listed: everyone, states:, flags: dict.new()))
+        Loaded(
+          Listed(Shown(everyone:, listed: everyone, states:, flags: dict.new())),
+        )
       Awaited | LookingUp(..) -> Loading
-      LookupFailed(problem:) -> Failed(problem:)
+      LookupFailed -> Loaded(FlagsUnavailable)
       Found(by_account: flags) ->
-        Loaded(Shown(
-          everyone:,
-          listed: list.filter(everyone, fn(account) {
-            dict.has_key(flags, account.did)
-          }),
-          states:,
-          flags:,
-        ))
+        Loaded(
+          Listed(Shown(
+            everyone:,
+            listed: list.filter(everyone, fn(account) {
+              dict.has_key(flags, account.did)
+            }),
+            states:,
+            flags:,
+          )),
+        )
     }
   }
 
@@ -817,29 +835,47 @@ pub fn view(model: Model) -> List(Element(Message)) {
           ),
         ],
         {
-          use shown <- layout.rows(shown, placeholders: 3)
+          use listed <- layout.rows(listed, placeholders: 3)
 
-          layout.listing(
-            empty: case model.flags {
-              NotWanted -> "No accounts"
-              Awaited | LookingUp(..) | Found(_) | LookupFailed(_) ->
-                "No flagged accounts"
-            },
-            rows: list.filter(shown.listed, fn(account) {
-              is_open(model, account) || matches(account, model.typed)
-            })
-              |> list.map(fn(account) {
-                #(
-                  did.to_string(account.did),
-                  element.fragment(view_account(model, account, shown)),
-                )
-              }),
-            actions: [],
-          )
+          case listed {
+            FlagsUnavailable -> [view_lookup_failure()]
+            Listed(shown:) ->
+              layout.listing(
+                empty: case model.flags {
+                  NotWanted -> "No accounts"
+                  Awaited | LookingUp(..) | Found(_) | LookupFailed ->
+                    "No flagged accounts"
+                },
+                rows: list.filter(shown.listed, fn(account) {
+                  is_open(model, account) || matches(account, model.typed)
+                })
+                  |> list.map(fn(account) {
+                    #(
+                      did.to_string(account.did),
+                      element.fragment(view_account(model, account, shown)),
+                    )
+                  }),
+                actions: [],
+              )
+          }
         },
       ]),
     ),
   ]
+}
+
+fn view_lookup_failure() -> Element(Message) {
+  layout.row(
+    tone: Warning,
+    name: "error",
+    details: [html.text("Couldn't reach the label relay")],
+    actions: [
+      html.button(
+        [attribute.class("action"), event.on_click(UserClickedTryAgain)],
+        [html.text("Try again")],
+      ),
+    ],
+  )
 }
 
 fn is_open(model: Model, account: ListedAccount) -> Bool {
