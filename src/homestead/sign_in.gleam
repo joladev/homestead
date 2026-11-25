@@ -20,7 +20,7 @@ import homestead/setting.{type Settings}
 import homestead/slingshot
 import homestead/tern.{type Actor}
 import homestead/tranquil.{
-  type SignInWays, type Software, OtherSoftware, SignInWays, Tranquil,
+  type SignInWay, type Software, OtherSoftware, Tranquil,
 }
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
@@ -151,7 +151,7 @@ pub opaque type Message {
     found: Found,
     result: Result(Software, rsvp.Error(String)),
   )
-  ServerReturnedWays(found: Found, result: Result(SignInWays, tranquil.Problem))
+  ServerReturnedWay(found: Found, result: Result(SignInWay, tranquil.Problem))
   ServerPreparedSignIn(result: Result(Attempt, session.Problem))
   EntryProducedMessage(password_sign_in.Message)
 }
@@ -208,7 +208,7 @@ fn update_while_entering(
     | HandleHostReturnedDid(..)
     | DirectoryReturnedDocument(..)
     | ServerReturnedHealth(..)
-    | ServerReturnedWays(..)
+    | ServerReturnedWay(..)
     | ServerPreparedSignIn(..) -> #(model, effect.none())
   }
 }
@@ -295,7 +295,7 @@ fn update_while_idle(
     | HandleHostReturnedDid(..)
     | DirectoryReturnedDocument(..)
     | ServerReturnedHealth(..)
-    | ServerReturnedWays(..)
+    | ServerReturnedWay(..)
     | ServerPreparedSignIn(..)
     | EntryProducedMessage(_) -> #(model, effect.none())
   }
@@ -385,8 +385,8 @@ fn update_while_looking(
           Ok(
             tranquil.ask(
               found.server,
-              tranquil.sign_in_ways(found.account),
-              ServerReturnedWays(found, _),
+              tranquil.sign_in_way(found.account),
+              ServerReturnedWay(found, _),
             ),
           )
         Ok(OtherSoftware) -> Error(NotTranquil)
@@ -409,10 +409,7 @@ fn update_while_looking(
       }
     }
 
-    ServerReturnedWays(
-      found:,
-      result: Ok(SignInWays(password: True, controlled: False)),
-    ) -> {
+    ServerReturnedWay(found:, result: Ok(tranquil.WithPassword)) -> {
       let #(entry, effect) =
         password_sign_in.init(
           account: found.account,
@@ -427,19 +424,19 @@ fn update_while_looking(
       )
     }
 
-    ServerReturnedWays(found:, result: Ok(SignInWays(password: False, ..)))
-    | ServerReturnedWays(found:, result: Ok(SignInWays(controlled: True, ..))) -> #(
+    ServerReturnedWay(found:, result: Ok(tranquil.WithoutPassword))
+    | ServerReturnedWay(found:, result: Ok(tranquil.Controlled)) -> #(
       model,
       prepare_sign_in(found.account),
     )
 
-    ServerReturnedWays(result: Error(tranquil.Unreachable), ..) -> #(
+    ServerReturnedWay(result: Error(tranquil.Unreachable), ..) -> #(
       Model(..model, lookup: Failed(ServerUnreachable)),
       effect.none(),
     )
 
-    ServerReturnedWays(result: Error(tranquil.Refused(_, _)), ..)
-    | ServerReturnedWays(result: Error(tranquil.NotUnderstood), ..) -> #(
+    ServerReturnedWay(result: Error(tranquil.Refused(_, _)), ..)
+    | ServerReturnedWay(result: Error(tranquil.NotUnderstood), ..) -> #(
       Model(..model, lookup: Failed(SignInNotPrepared)),
       effect.none(),
     )

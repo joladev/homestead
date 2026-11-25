@@ -49,7 +49,7 @@ type Step {
 
 type CodeSource {
   Authenticator
-  SentOver(channel: String)
+  SentOver(channel: Channel)
 }
 
 type Progress {
@@ -526,7 +526,8 @@ pub fn view(model: Model) -> List(Element(Message)) {
         html.label([attribute.for(code_id)], [
           html.text(case source {
             Authenticator -> "Authenticator or backup code"
-            SentOver(channel:) -> "Code sent to your " <> channel
+            SentOver(channel:) ->
+              "Code sent to your " <> tranquil.channel_name(channel)
           }),
         ]),
         html.div([attribute.class("field")], [

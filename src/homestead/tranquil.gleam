@@ -158,8 +158,10 @@ pub type Availability {
   Unavailable(reason: Option(String))
 }
 
-pub type SignInWays {
-  SignInWays(password: Bool, controlled: Bool)
+pub type SignInWay {
+  WithPassword
+  WithoutPassword
+  Controlled
 }
 
 pub type Contact {
@@ -186,7 +188,7 @@ pub type SignInStep {
   SignedIn(continue: Uri)
   NeedsApproval
   NeedsAuthenticatorCode
-  NeedsSentCode(channel: String)
+  NeedsSentCode(channel: Channel)
   NeedsServerPage
   NeedsVerification(channel: Channel)
 }
@@ -529,15 +531,19 @@ pub fn handle_availability(
   )
 }
 
-pub fn sign_in_ways(account: Did) -> Query(SignInWays) {
+pub fn sign_in_way(account: Did) -> Query(SignInWay) {
   Query(
     path: "/oauth/security-status?"
       <> uri.query_to_string([#("identifier", did.to_string(account))]),
     decoder: {
-      use password <- decode.field("hasPassword", decode.bool)
-      use controlled <- decode.field("isDelegated", decode.bool)
+      use has_password <- decode.field("hasPassword", decode.bool)
+      use is_controlled <- decode.field("isDelegated", decode.bool)
 
-      decode.success(SignInWays(password:, controlled:))
+      decode.success(case is_controlled, has_password {
+        True, _ -> Controlled
+        False, True -> WithPassword
+        False, False -> WithoutPassword
+      })
     },
   )
 }
@@ -1309,7 +1315,15 @@ pub fn set_account_invites(account: Did, enabled: Bool) -> Command(Nil) {
   )
 }
 
-pub fn set_takedown(account: Did, is_applied: Bool) -> Command(Nil) {
+pub fn take_down(account: Did) -> Command(Nil) {
+  set_takedown(account, True)
+}
+
+pub fn restore(account: Did) -> Command(Nil) {
+  set_takedown(account, False)
+}
+
+fn set_takedown(account: Did, is_applied: Bool) -> Command(Nil) {
   command(
     "com.atproto.admin.updateSubjectStatus",
     json.object([
@@ -1372,7 +1386,15 @@ pub fn send_email(
   )
 }
 
-pub fn set_admin(account: Did, is_admin: Bool) -> Command(Nil) {
+pub fn make_admin(account: Did) -> Command(Nil) {
+  set_admin(account, True)
+}
+
+pub fn remove_admin(account: Did) -> Command(Nil) {
+  set_admin(account, False)
+}
+
+fn set_admin(account: Did, is_admin: Bool) -> Command(Nil) {
   command(
     "_admin.setAdminStatus",
     json.object([
@@ -1868,7 +1890,7 @@ pub fn sign_in_step_decoder() -> Decoder(SignInStep) {
   }
   let sent_code = {
     use _ <- decode.field("needs_2fa", decode.bool)
-    use channel <- decode.field("channel", decode.string)
+    use channel <- decode.field("channel", channel_decoder())
 
     decode.success(NeedsSentCode(channel:))
   }

@@ -324,7 +324,7 @@ pub fn a_sign_in_answer_names_the_next_step_test() {
     == Ok(NeedsApproval)
   assert step("{\"needs_totp\":true}") == Ok(NeedsAuthenticatorCode)
   assert step("{\"needs_2fa\":true,\"channel\":\"email\"}")
-    == Ok(NeedsSentCode(channel: "email"))
+    == Ok(NeedsSentCode(channel: Email))
   assert step("{\"error\":\"account_not_verified\",\"channel\":\"email\"}")
     == Ok(NeedsVerification(channel: Email))
   assert step("{\"error\":\"access_denied\"}") |> result.is_error

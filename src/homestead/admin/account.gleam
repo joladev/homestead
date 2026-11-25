@@ -471,23 +471,13 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     UserClickedRestore -> {
       use opened <- with_opened(model)
 
-      change(
-        session,
-        opened,
-        Restored,
-        tranquil.set_takedown(opened.account, False),
-      )
+      change(session, opened, Restored, tranquil.restore(opened.account))
     }
 
     UserClickedMakeAdmin -> {
       use opened <- with_opened(model)
 
-      change(
-        session,
-        opened,
-        MadeAdmin,
-        tranquil.set_admin(opened.account, True),
-      )
+      change(session, opened, MadeAdmin, tranquil.make_admin(opened.account))
     }
 
     UserAsked(step:, account:) ->
@@ -519,18 +509,13 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
       case opened.action {
         Confirming(step: TakingDown) ->
-          change(
-            session,
-            opened,
-            TookDown,
-            tranquil.set_takedown(opened.account, True),
-          )
+          change(session, opened, TookDown, tranquil.take_down(opened.account))
         Confirming(step: RemovingAdmin) ->
           change(
             session,
             opened,
             RemovedAdmin,
-            tranquil.set_admin(opened.account, False),
+            tranquil.remove_admin(opened.account),
           )
         Confirming(step: Deleting) ->
           change(

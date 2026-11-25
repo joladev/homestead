@@ -299,7 +299,7 @@ pub fn view(model: Model) -> List(Element(Message)) {
           )
         },
         case model.action {
-          Refused(_) -> [layout.problem("The server didn't accept that")]
+          Refused(problem:) -> [layout.problem(tranquil.describe(problem))]
           Resting
           | Composing(_)
           | Creating
