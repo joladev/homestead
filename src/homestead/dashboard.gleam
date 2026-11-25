@@ -7,6 +7,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/duration.{type Duration}
 import gleam/time/timestamp.{type Timestamp}
+import homestead/active_session
 import homestead/admin
 import homestead/app_password
 import homestead/backlink
@@ -28,7 +29,6 @@ import homestead/route.{
   ConnectedApps, Data, NotFound, Overview, Section, Sessions, SignInMethods,
 }
 import homestead/session.{type Departure, type Session, type StoredAccount}
-import homestead/sessions
 import homestead/setting.{type Settings}
 import homestead/sign_in
 import homestead/sign_in_method
@@ -60,7 +60,7 @@ pub opaque type Model {
 
 type Page {
   OverviewPage(overview.Model)
-  SessionsPage(sessions.Model)
+  SessionsPage(active_session.Model)
   ConnectedAppsPage(connected_app.Model)
   AppPasswordsPage(app_password.Model)
   ProfilePage(profile.Model)
@@ -161,7 +161,7 @@ fn open(
 
     Access(Sessions) -> {
       let #(page, effect) =
-        sessions.init(session, local_offset, sessions.Everything)
+        active_session.init(session, local_offset, active_session.Everything)
 
       #(SessionsPage(page), effect.map(effect, SessionsProducedMessage))
     }
@@ -284,7 +284,7 @@ pub fn route(model: Model) -> Route {
 pub fn departure(model: Model) -> Option(Departure) {
   case model.departure, model.page {
     Some(departure), _ -> Some(departure)
-    None, SessionsPage(page) -> sessions.departure(page)
+    None, SessionsPage(page) -> active_session.departure(page)
     None, ConnectedAppsPage(page) -> connected_app.departure(page)
     None, DeleteAccountPage(page) -> delete_account.departure(page)
     None, OverviewPage(_)
@@ -310,7 +310,7 @@ pub opaque type Message {
   BrowserReturnedAccounts(accounts: List(StoredAccount))
   BrowserReturnedTime(route: Route, now: Timestamp)
   OverviewProducedMessage(overview.Message)
-  SessionsProducedMessage(sessions.Message)
+  SessionsProducedMessage(active_session.Message)
   ConnectedAppsProducedMessage(connected_app.Message)
   AppPasswordsProducedMessage(app_password.Message)
   ProfileProducedMessage(profile.Message)
@@ -384,7 +384,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     SessionsProducedMessage(message), SessionsPage(page) -> {
-      let #(page, effect) = sessions.update(page, message)
+      let #(page, effect) = active_session.update(page, message)
 
       #(
         Model(..model, page: SessionsPage(page)),
@@ -653,7 +653,7 @@ pub fn view(model: Model) -> Element(Message) {
         |> element.map(OverviewProducedMessage)
 
       SessionsPage(page) ->
-        sessions.view(page) |> element.map(SessionsProducedMessage)
+        active_session.view(page) |> element.map(SessionsProducedMessage)
 
       ConnectedAppsPage(page) ->
         connected_app.view(page) |> element.map(ConnectedAppsProducedMessage)

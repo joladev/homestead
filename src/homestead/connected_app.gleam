@@ -3,12 +3,12 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/time/duration.{type Duration}
 import gleam/uri.{Uri}
+import homestead/active_session
 import homestead/browser
 import homestead/confirmation
 import homestead/layout
 import homestead/remote.{type Remote, Failed, Loading}
 import homestead/session.{type Departure, type Session}
-import homestead/sessions
 import homestead/tranquil.{type Problem, type RememberedApp}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -19,7 +19,7 @@ import lustre/event
 pub opaque type Model {
   Model(
     session: Session,
-    sessions: sessions.Model,
+    sessions: active_session.Model,
     remembered: Remembered,
     forgetting: Forgetting,
   )
@@ -41,7 +41,7 @@ pub fn init(
   local_offset: Duration,
 ) -> #(Model, Effect(Message)) {
   let #(sessions, effect) =
-    sessions.init(session, local_offset, sessions.ThroughApps)
+    active_session.init(session, local_offset, active_session.ThroughApps)
 
   #(
     Model(
@@ -58,11 +58,11 @@ pub fn init(
 }
 
 pub fn departure(model: Model) -> Option(Departure) {
-  sessions.departure(model.sessions)
+  active_session.departure(model.sessions)
 }
 
 pub opaque type Message {
-  SessionsProducedMessage(sessions.Message)
+  SessionsProducedMessage(active_session.Message)
   ServerReturnedRememberedApps(result: Result(List(RememberedApp), Problem))
   UserClickedForget(app: RememberedApp)
   UserCancelledForget(app: RememberedApp)
@@ -73,7 +73,7 @@ pub opaque type Message {
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     SessionsProducedMessage(message) -> {
-      let #(sessions, effect) = sessions.update(model.sessions, message)
+      let #(sessions, effect) = active_session.update(model.sessions, message)
 
       #(Model(..model, sessions:), effect.map(effect, SessionsProducedMessage))
     }
@@ -148,7 +148,7 @@ pub fn describe_app(client_id: String) -> String {
 pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("apps", [
-      sessions.view_list(model.sessions)
+      active_session.view_list(model.sessions)
       |> element.map(SessionsProducedMessage),
     ]),
     case model.remembered {
