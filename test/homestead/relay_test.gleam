@@ -19,9 +19,16 @@ pub fn a_relay_says_whether_it_is_connected_to_the_server_test() {
 
   assert relay.read_server(answered(200, connected)) == Loaded(Connected)
   assert relay.read_server(answered(404, unknown)) == Loaded(NotKnown)
-  assert relay.read_server(answered(502, "")) == Failed(tranquil.NotUnderstood)
+  assert relay.read_server(answered(502, ""))
+    == Failed(tranquil.Problem(
+      service: "the relay",
+      reason: tranquil.NotUnderstood,
+    ))
   assert relay.read_server(Error(rsvp.NetworkError))
-    == Failed(tranquil.Unreachable)
+    == Failed(tranquil.Problem(
+      service: "the relay",
+      reason: tranquil.Unreachable,
+    ))
 }
 
 pub fn a_relay_says_what_it_holds_for_the_account_test() {

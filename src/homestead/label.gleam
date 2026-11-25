@@ -192,7 +192,14 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
           ),
         )
         Error(Nil) -> #(
-          fail(model, labeler, tranquil.NotUnderstood),
+          fail(
+            model,
+            labeler,
+            tranquil.Problem(
+              service: "the labeler",
+              reason: tranquil.NotUnderstood,
+            ),
+          ),
           effect.none(),
         )
       }
@@ -247,7 +254,14 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       list.fold(labelers, model, fn(model, labeler) {
         change(model, labeler, fn(known) {
           case known.own {
-            Loading -> Labeler(..known, own: Failed(tranquil.Unreachable))
+            Loading ->
+              Labeler(
+                ..known,
+                own: Failed(tranquil.Problem(
+                  service: "the labeler",
+                  reason: tranquil.Unreachable,
+                )),
+              )
             Loaded(_) | Failed(_) -> known
           }
         })
@@ -297,10 +311,16 @@ fn meet_labelers(
           services_request(model.settings.appview, unknown),
           rsvp.expect_ok_response(fn(response) {
             AppViewReturnedServices(
-              result.replace_error(response, tranquil.Unreachable)
+              result.map_error(response, tranquil.error_to_problem(
+                _,
+                from: "the AppView",
+              ))
               |> result.try(fn(response) {
                 read_services(response.body)
-                |> result.replace_error(tranquil.NotUnderstood)
+                |> result.replace_error(tranquil.Problem(
+                  service: "the AppView",
+                  reason: tranquil.NotUnderstood,
+                ))
               }),
             )
           }),
@@ -315,10 +335,16 @@ fn meet_labelers(
             rsvp.expect_ok_response(fn(response) {
               DirectoryReturnedLabeler(
                 labeler,
-                result.replace_error(response, tranquil.Unreachable)
+                result.map_error(response, tranquil.error_to_problem(
+                  _,
+                  from: "the directory",
+                ))
                   |> result.try(fn(response) {
                     json.parse(response.body, did_document.decoder())
-                    |> result.replace_error(tranquil.NotUnderstood)
+                    |> result.replace_error(tranquil.Problem(
+                      service: "the directory",
+                      reason: tranquil.NotUnderstood,
+                    ))
                   }),
               )
             }),
@@ -350,7 +376,7 @@ fn ask_relay(
 ) -> Effect(Message) {
   rsvp.send(
     relay_request(relay, subject, after),
-    expect_labels(RelayReturnedLabelers(subject, _)),
+    expect_labels("the label relay", RelayReturnedLabelers(subject, _)),
   )
 }
 
@@ -361,7 +387,7 @@ fn ask_appview(
 ) -> Effect(Message) {
   rsvp.send(
     appview_request(model.settings.appview, model.account, labelers, after),
-    expect_labels(AppViewReturnedLabels(labelers, _)),
+    expect_labels("the AppView", AppViewReturnedLabels(labelers, _)),
   )
 }
 
@@ -383,23 +409,34 @@ fn ask_labeler(
   )
 
   case labeler_request(server, subject, after) {
-    Ok(request) -> rsvp.send(request, expect_labels(to_message))
+    Ok(request) -> rsvp.send(request, expect_labels("the labeler", to_message))
     Error(Nil) ->
       effect.from(fn(dispatch) {
-        dispatch(to_message(Error(tranquil.NotUnderstood)))
+        dispatch(
+          to_message(
+            Error(tranquil.Problem(
+              service: "the labeler",
+              reason: tranquil.NotUnderstood,
+            )),
+          ),
+        )
       })
   }
 }
 
 fn expect_labels(
+  service: String,
   to_message: fn(Result(Page, Problem)) -> Message,
 ) -> rsvp.Handler(String, Message) {
   rsvp.expect_ok_response(fn(response) {
     to_message(
-      result.replace_error(response, tranquil.Unreachable)
+      result.map_error(response, tranquil.error_to_problem(_, from: service))
       |> result.try(fn(response) {
         read(response.body)
-        |> result.replace_error(tranquil.NotUnderstood)
+        |> result.replace_error(tranquil.Problem(
+          service:,
+          reason: tranquil.NotUnderstood,
+        ))
       }),
     )
   })

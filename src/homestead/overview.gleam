@@ -103,9 +103,9 @@ pub opaque type Message {
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    ServerReturnedDisplayName(result: Error(tranquil.Refused(
-      "RecordNotFound",
-      _,
+    ServerReturnedDisplayName(result: Error(tranquil.Problem(
+      reason: tranquil.Refused("RecordNotFound", _),
+      ..,
     ))) -> #(Model(..model, display_name: Loaded(None)), effect.none())
 
     ServerReturnedDisplayName(result:) -> #(
@@ -137,7 +137,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       Model(
         ..model,
         verified_handle: slingshot.verified_handle(returned)
-          |> result.replace_error(tranquil.Unreachable)
+          |> result.map_error(tranquil.error_to_problem(_, from: "Slingshot"))
           |> remote.from_result,
       ),
       effect.none(),

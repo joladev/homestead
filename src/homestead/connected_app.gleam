@@ -78,9 +78,9 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       #(Model(..model, sessions:), effect.map(effect, SessionsProducedMessage))
     }
 
-    ServerReturnedRememberedApps(result: Error(tranquil.Refused(
-      "MethodNotImplemented",
-      _,
+    ServerReturnedRememberedApps(result: Error(tranquil.Problem(
+      reason: tranquil.Refused("MethodNotImplemented", _),
+      ..,
     ))) -> #(Model(..model, remembered: NotSupported), effect.none())
 
     ServerReturnedRememberedApps(result:) -> #(

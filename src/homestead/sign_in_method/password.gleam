@@ -175,7 +175,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ServerSetPassword(
       new:,
-      result: Error(tranquil.Refused("ReauthRequired", _)),
+      result: Error(tranquil.Problem(
+        reason: tranquil.Refused("ReauthRequired", _),
+        ..,
+      )),
     ) -> sign_in_again(model, SettingPassword(new:))
 
     ServerSetPassword(new:, result: Error(problem)) -> #(
@@ -208,8 +211,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       load(session),
     )
 
-    ServerRemovedPassword(result: Error(tranquil.Refused("ReauthRequired", _))) ->
-      sign_in_again(model, RemovingPassword)
+    ServerRemovedPassword(result: Error(tranquil.Problem(
+      reason: tranquil.Refused("ReauthRequired", _),
+      ..,
+    ))) -> sign_in_again(model, RemovingPassword)
 
     ServerRemovedPassword(result: Error(problem)) -> #(
       Model(..model, action: Refused(problem:)),
@@ -280,7 +285,7 @@ fn remove(session: Session) -> Effect(Message) {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("InvalidPassword", _) -> "That password isn't right"
     tranquil.Refused("InvalidRequest", message) if message != "" -> message
     tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->

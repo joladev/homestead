@@ -240,7 +240,7 @@ fn remove_button_id(controller: Controller) -> String {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("ControllerNotFound", _) -> "No account by that name"
     tranquil.Refused("InvalidDelegation", message) if message != "" -> message
     tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->

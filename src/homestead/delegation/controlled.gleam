@@ -226,7 +226,7 @@ fn delete_button_id(account: ControlledAccount) -> String {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("MethodNotImplemented", _) ->
       "This server can't delete controlled accounts"
     tranquil.Refused("HandleNotAvailable", _) -> "That handle is taken"

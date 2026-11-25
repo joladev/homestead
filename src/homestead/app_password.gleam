@@ -367,7 +367,7 @@ fn view_form(model: Model) -> Element(Message) {
 }
 
 fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("DuplicateAppPassword", _) -> "That name is already in use"
     tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
       tranquil.describe(problem)

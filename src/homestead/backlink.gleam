@@ -112,7 +112,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       Model(
         ..model,
         place: AtSources(
-          links: result.replace_error(returned, tranquil.Unreachable)
+          links: result.map_error(returned, tranquil.error_to_problem(
+            _,
+            from: "Constellation",
+          ))
           |> remote.from_result,
         ),
       ),
@@ -168,11 +171,17 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
 
     AtSource(records: Loading, ..) as place,
-      ConstellationReturnedRecords(result: Error(_))
+      ConstellationReturnedRecords(result: Error(error))
     -> #(
       Model(
         ..model,
-        place: AtSource(..place, records: Failed(tranquil.Unreachable)),
+        place: AtSource(
+          ..place,
+          records: Failed(tranquil.error_to_problem(
+            error,
+            from: "Constellation",
+          )),
+        ),
       ),
       effect.none(),
     )

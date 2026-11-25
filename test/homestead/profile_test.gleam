@@ -7,6 +7,7 @@ import gleam/option.{Some}
 import homestead/profile.{
   Absent, Malformed, PointsElsewhere, PointsHere, Unreadable,
 }
+import homestead/tranquil
 import rsvp
 
 fn account() -> Did {
@@ -45,9 +46,16 @@ pub fn a_dns_reply_is_judged_by_its_text_record_test() {
 
   assert profile.record_finding(replied(named), account()) == Ok(PointsHere)
   assert profile.record_finding(replied(unknown), account()) == Ok(Absent)
-  assert profile.record_finding(replied(failed), account()) == Error(Nil)
+  assert profile.record_finding(replied(failed), account())
+    == Error(tranquil.Problem(
+      service: "the DNS service",
+      reason: tranquil.NotUnderstood,
+    ))
   assert profile.record_finding(Error(rsvp.NetworkError), account())
-    == Error(Nil)
+    == Error(tranquil.Problem(
+      service: "the DNS service",
+      reason: tranquil.Unreachable,
+    ))
 }
 
 pub fn a_handle_file_is_judged_by_its_content_test() {

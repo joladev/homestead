@@ -130,7 +130,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     ServerPage(..), TangledReturnedTags(result:) -> #(
       ServerPage(
         ..model,
-        tags: result.replace_error(result, tranquil.Unreachable)
+        tags: result.map_error(result, tranquil.error_to_problem(
+            _,
+            from: "Tangled",
+          ))
           |> remote.from_result,
       ),
       effect.none(),

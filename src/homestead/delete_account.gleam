@@ -133,7 +133,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("AuthenticationFailed", _) -> "That password isn't right"
     tranquil.Refused("InvalidToken", _) -> "That code isn't right"
     tranquil.Refused("ExpiredToken", _) -> "That code has expired"

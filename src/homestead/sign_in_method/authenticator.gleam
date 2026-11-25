@@ -305,7 +305,7 @@ fn check_button_id(purpose: Purpose) -> String {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("InvalidPassword", _) -> "That password isn't right"
     tranquil.Refused("InvalidCode", _) -> "That code isn't right"
     tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->

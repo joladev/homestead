@@ -430,16 +430,19 @@ fn update_while_looking(
       prepare_sign_in(found.account),
     )
 
-    ServerReturnedWay(result: Error(tranquil.Unreachable), ..) -> #(
-      Model(..model, lookup: Failed(ServerUnreachable)),
-      effect.none(),
-    )
+    ServerReturnedWay(
+      result: Error(tranquil.Problem(reason: tranquil.Unreachable, ..)),
+      ..,
+    ) -> #(Model(..model, lookup: Failed(ServerUnreachable)), effect.none())
 
-    ServerReturnedWay(result: Error(tranquil.Refused(_, _)), ..)
-    | ServerReturnedWay(result: Error(tranquil.NotUnderstood), ..) -> #(
-      Model(..model, lookup: Failed(SignInNotPrepared)),
-      effect.none(),
+    ServerReturnedWay(
+      result: Error(tranquil.Problem(reason: tranquil.Refused(_, _), ..)),
+      ..,
     )
+    | ServerReturnedWay(
+        result: Error(tranquil.Problem(reason: tranquil.NotUnderstood, ..)),
+        ..,
+      ) -> #(Model(..model, lookup: Failed(SignInNotPrepared)), effect.none())
 
     ServerPreparedSignIn(result: Ok(attempt)) -> #(
       Model(..model, lookup: NotStarted),

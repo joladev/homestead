@@ -152,7 +152,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ServerDeletedPasskey(
       passkey:,
-      result: Error(tranquil.Refused("ReauthRequired", _)),
+      result: Error(tranquil.Problem(
+        reason: tranquil.Refused("ReauthRequired", _),
+        ..,
+      )),
     ) -> {
       let #(reauth, effect) = reauth.init(session)
 

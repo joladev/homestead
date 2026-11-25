@@ -33,15 +33,10 @@ pub fn handle_decoder() -> Decoder(Handle) {
 
 pub fn verified_handle(
   result: Result(Handle, rsvp.Error(String)),
-) -> Result(Option(Handle), Nil) {
+) -> Result(Option(Handle), rsvp.Error(String)) {
   case result {
     Ok(handle) -> Ok(Some(handle))
     Error(rsvp.HttpError(response)) if response.status == 400 -> Ok(None)
-    Error(rsvp.HttpError(_))
-    | Error(rsvp.BadBody)
-    | Error(rsvp.BadUrl(_))
-    | Error(rsvp.JsonError(_))
-    | Error(rsvp.NetworkError)
-    | Error(rsvp.UnhandledResponse(_)) -> Error(Nil)
+    Error(error) -> Error(error)
   }
 }

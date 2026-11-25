@@ -122,7 +122,7 @@ fn unlink_button_id(account: LinkedAccount) -> String {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("InvalidRequest", message) if message != "" -> message
     tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
       tranquil.describe(problem)

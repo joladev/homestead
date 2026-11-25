@@ -391,7 +391,7 @@ fn ask_for_code(
 }
 
 fn refuse(model: Model, problem: Problem) -> #(Model, Effect(Message)) {
-  case model.step, problem {
+  case model.step, problem.reason {
     Code(..), tranquil.Refused("invalid_request", _) -> #(
       Model(..model, step: Password, progress: Stopped(TookTooLong)),
       browser.focus(password_id),
@@ -687,17 +687,18 @@ fn describe(trouble: Trouble) -> String {
   case trouble {
     NotPrepared -> "Couldn't start signing in on that server."
     TookTooLong -> "That took too long. Sign in again."
-    Refused(problem: tranquil.Refused(
-      "access_denied",
-      "Invalid identifier or password.",
-    )) -> "That password isn't right."
-    Refused(problem: tranquil.Refused("invalid_code", _))
-    | Refused(problem: tranquil.Refused(
-        "InvalidRequest",
-        "Invalid verification code",
-      )) -> "That code isn't right."
-    Refused(problem: tranquil.Refused("ExpiredToken", _)) ->
-      "That code has expired. Send a new one."
-    Refused(problem:) -> tranquil.describe_failed_load(problem)
+    Refused(problem:) ->
+      case problem.reason {
+        tranquil.Refused("access_denied", "Invalid identifier or password.") ->
+          "That password isn't right."
+        tranquil.Refused("invalid_code", _)
+        | tranquil.Refused("InvalidRequest", "Invalid verification code") ->
+          "That code isn't right."
+        tranquil.Refused("ExpiredToken", _) ->
+          "That code has expired. Send a new one."
+        tranquil.Refused(_, _)
+        | tranquil.Unreachable
+        | tranquil.NotUnderstood -> tranquil.describe_failed_load(problem)
+      }
   }
 }

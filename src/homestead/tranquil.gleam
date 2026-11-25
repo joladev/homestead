@@ -63,9 +63,30 @@ pub fn health_decoder() -> Decoder(Software) {
 }
 
 pub type Problem {
+  Problem(service: String, reason: Reason)
+}
+
+pub type Reason {
   Unreachable
   Refused(error: String, message: String)
   NotUnderstood
+}
+
+fn from_server(reason: Reason) -> Problem {
+  Problem(service: "the server", reason:)
+}
+
+pub fn error_to_problem(
+  error: rsvp.Error(body),
+  from service: String,
+) -> Problem {
+  Problem(service:, reason: case error {
+    rsvp.NetworkError | rsvp.BadUrl(_) -> Unreachable
+    rsvp.HttpError(response) ->
+      Refused(error: int.to_string(response.status), message: "")
+    rsvp.BadBody | rsvp.JsonError(_) | rsvp.UnhandledResponse(_) ->
+      NotUnderstood
+  })
 }
 
 type Failure {
@@ -74,20 +95,29 @@ type Failure {
 }
 
 pub fn describe_failed_load(problem: Problem) -> String {
-  case problem {
-    Unreachable -> "Couldn't reach the server"
+  case problem.reason {
+    Unreachable -> "Couldn't reach " <> problem.service
     Refused("RateLimitExceeded", _) -> "Too many requests. Try again later"
-    Refused(error:, message: "") -> "The server refused: " <> error
+    Refused(error:, message: "") ->
+      at_sentence_start(problem.service) <> " refused: " <> error
     Refused(message:, ..) -> message
-    NotUnderstood -> "Couldn't read the server's answer"
+    NotUnderstood -> "Couldn't read " <> problem.service <> "'s answer"
   }
 }
 
 pub fn describe(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     Refused("RateLimitExceeded", _) -> "Too many attempts. Try again later"
-    Unreachable -> "Couldn't reach the server"
-    Refused(_, _) | NotUnderstood -> "The server didn't accept that"
+    Unreachable -> "Couldn't reach " <> problem.service
+    Refused(_, _) | NotUnderstood ->
+      at_sentence_start(problem.service) <> " didn't accept that"
+  }
+}
+
+fn at_sentence_start(service: String) -> String {
+  case string.pop_grapheme(service) {
+    Ok(#(first, rest)) -> string.uppercase(first) <> rest
+    Error(Nil) -> service
   }
 }
 
@@ -1271,11 +1301,11 @@ pub fn create_record(
     ),
     read: fn(answer) {
       json.parse(answer, decode.at(["uri"], decode.string))
-      |> result.replace_error(NotUnderstood)
+      |> result.replace_error(from_server(NotUnderstood))
       |> result.try(fn(address) {
         string.split(address, "/")
         |> list.last
-        |> result.replace_error(NotUnderstood)
+        |> result.replace_error(from_server(NotUnderstood))
       })
     },
   )
@@ -1860,7 +1890,7 @@ pub fn enter_password(
             Error(problem), 200 -> Error(problem)
             Error(_), _ -> Error(refusal(response.body))
           }
-        Error(_) -> Error(Unreachable)
+        Error(_) -> Error(from_server(Unreachable))
       })
     }),
   )
@@ -1868,7 +1898,7 @@ pub fn enter_password(
 
 fn read_step(body: String) -> Result(SignInStep, Problem) {
   json.parse(body, sign_in_step_decoder())
-  |> result.replace_error(NotUnderstood)
+  |> result.replace_error(from_server(NotUnderstood))
 }
 
 pub fn sign_in_step_decoder() -> Decoder(SignInStep) {
@@ -1979,13 +2009,14 @@ fn answered(
     to_message(case response {
       Ok(response) if response.status == 200 -> read(response.body)
       Ok(response) -> Error(refusal(response.body))
-      Error(_) -> Error(Unreachable)
+      Error(_) -> Error(from_server(Unreachable))
     })
   })
 }
 
 pub fn parse(query: Query(answer), body: String) -> Result(answer, Problem) {
-  json.parse(body, query.decoder) |> result.replace_error(NotUnderstood)
+  json.parse(body, query.decoder)
+  |> result.replace_error(from_server(NotUnderstood))
 }
 
 fn fetch(
@@ -2060,7 +2091,7 @@ pub fn upload_media(
       use answer <- result.try(accepted(response))
 
       json.parse(answer, decode.at(["blob", "ref", "$link"], decode.string))
-      |> result.replace_error(Failed(NotUnderstood))
+      |> result.replace_error(Failed(from_server(NotUnderstood)))
     },
     to_message,
   )
@@ -2109,7 +2140,7 @@ pub fn delete_account(
           Ok(Nil)
         }
         Ok(response) -> Error(refusal(response.body))
-        Error(_) -> Error(Unreachable)
+        Error(_) -> Error(from_server(Unreachable))
       })
     }),
   )
@@ -2128,10 +2159,10 @@ fn refusal(body: String) -> Problem {
     decode.success(Refused(error:, message:))
   }
 
-  case json.parse(body, decoder) {
+  from_server(case json.parse(body, decoder) {
     Ok(refused) -> refused
     Error(_) -> NotUnderstood
-  }
+  })
 }
 
 fn accepted(
@@ -2142,17 +2173,20 @@ fn accepted(
 
     Error(session.SessionEnded) -> Error(Expired)
 
-    Ok(#(status, body)) ->
-      case status, refusal(body) {
+    Ok(#(status, body)) -> {
+      let problem = refusal(body)
+
+      case status, problem.reason {
         401, Refused(error: "AuthenticationFailed", ..)
         | 401, Refused(error: "ExpiredToken", ..)
         -> Error(Expired)
-        _, problem -> Error(Failed(problem:))
+        _, _ -> Error(Failed(problem:))
       }
+    }
 
     Error(session.SignInRejected)
     | Error(session.NothingStored)
-    | Error(session.Failed(_)) -> Error(Failed(Unreachable))
+    | Error(session.Failed(_)) -> Error(Failed(from_server(Unreachable)))
   }
 }
 
@@ -2179,7 +2213,8 @@ fn command_returning(
   decoder: Decoder(answer),
 ) -> Command(answer) {
   Command(path: "/xrpc/" <> name, body: json.to_string(body), read: fn(answer) {
-    json.parse(answer, decoder) |> result.replace_error(NotUnderstood)
+    json.parse(answer, decoder)
+    |> result.replace_error(from_server(NotUnderstood))
   })
 }
 

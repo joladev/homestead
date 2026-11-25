@@ -520,9 +520,11 @@ fn record_description(
       }
     }
 
-    Error(tranquil.Unreachable) -> decline(model, server, ServerUnreachable)
+    Error(tranquil.Problem(reason: tranquil.Unreachable, ..)) ->
+      decline(model, server, ServerUnreachable)
 
-    Error(tranquil.Refused(_, _)) | Error(tranquil.NotUnderstood) ->
+    Error(tranquil.Problem(reason: tranquil.Refused(_, _), ..))
+    | Error(tranquil.Problem(reason: tranquil.NotUnderstood, ..)) ->
       decline(model, server, NotTranquil)
   }
 }
@@ -1194,7 +1196,7 @@ fn view_handoff(handoff: Handoff) -> Element(message) {
 }
 
 fn describe_refusal(problem: tranquil.Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("HandleTaken", _)
     | tranquil.Refused("HandleNotAvailable", _) -> "That handle is taken"
     tranquil.Refused("InvalidInviteCode", _) -> "That invite code isn't valid"

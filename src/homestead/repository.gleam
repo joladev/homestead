@@ -300,7 +300,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ..model,
         place: AtRecord(
           ..place,
-          links: result.replace_error(returned, tranquil.Unreachable)
+          links: result.map_error(returned, tranquil.error_to_problem(
+              _,
+              from: "Constellation",
+            ))
             |> remote.from_result,
         ),
       ),
@@ -497,7 +500,7 @@ pub fn is_json_object(text: String) -> Bool {
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused(_, message) if message != "" -> message
     tranquil.Refused(_, _) | tranquil.Unreachable | tranquil.NotUnderstood ->
       tranquil.describe(problem)

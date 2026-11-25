@@ -284,14 +284,22 @@ fn read(
     Ok(response) if response.status == 200 ->
       case json.parse(response.body, decoder) {
         Ok(value) -> Loaded(value:)
-        Error(_) -> Failed(tranquil.NotUnderstood)
+        Error(_) ->
+          Failed(tranquil.Problem(
+            service: "the relay",
+            reason: tranquil.NotUnderstood,
+          ))
       }
     Ok(response) ->
       case json.parse(response.body, decode.at(["error"], decode.string)) {
         Ok(refusal) if refusal == error -> Loaded(value: unknown)
-        Ok(_) | Error(_) -> Failed(tranquil.NotUnderstood)
+        Ok(_) | Error(_) ->
+          Failed(tranquil.Problem(
+            service: "the relay",
+            reason: tranquil.NotUnderstood,
+          ))
       }
-    Error(_) -> Failed(tranquil.Unreachable)
+    Error(error) -> Failed(tranquil.error_to_problem(error, from: "the relay"))
   }
 }
 

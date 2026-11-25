@@ -195,7 +195,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         check: Check(
           ..model.check,
           verified: slingshot.verified_handle(returned)
-            |> result.replace_error(tranquil.Unreachable)
+            |> result.map_error(tranquil.error_to_problem(_, from: "Slingshot"))
             |> remote.from_result,
         ),
       ),
@@ -208,7 +208,6 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         check: Check(
           ..model.check,
           record: record_finding(returned, session.account(session))
-            |> result.replace_error(tranquil.Unreachable)
             |> remote.from_result,
         ),
       ),
@@ -636,7 +635,7 @@ fn change_email(
 }
 
 pub fn describe_refusal(problem: Problem) -> String {
-  case problem {
+  case problem.reason {
     tranquil.Refused("InvalidHandle", message) if message != "" -> message
     tranquil.Refused("HandleTaken", _) -> "That handle is taken"
     tranquil.Refused("HandleNotAvailable", message) ->
@@ -1257,6 +1256,8 @@ fn view_submit(
   )
 }
 
+const dns_service = "the DNS service"
+
 const text_record = 16
 
 pub type Finding {
@@ -1358,9 +1359,17 @@ fn read_text(value: BitArray, read: String) -> Result(String, Nil) {
 pub fn record_finding(
   result: Result(Response(BitArray), rsvp.Error(BitArray)),
   account: Did,
-) -> Result(Finding, Nil) {
-  use response <- result.try(result.replace_error(result, Nil))
-  use records <- result.map(text_records(response.body))
+) -> Result(Finding, tranquil.Problem) {
+  use response <- result.try(
+    result.map_error(result, tranquil.error_to_problem(_, from: dns_service)),
+  )
+  use records <- result.map(
+    text_records(response.body)
+    |> result.replace_error(tranquil.Problem(
+      service: dns_service,
+      reason: tranquil.NotUnderstood,
+    )),
+  )
 
   case did.from_txt_records(records) {
     Ok(named) if named == account -> PointsHere

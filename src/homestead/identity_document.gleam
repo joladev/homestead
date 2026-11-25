@@ -74,10 +74,16 @@ pub fn init(
         request,
         rsvp.expect_ok_response(fn(response) {
           DirectoryReturnedHistory(
-            result.replace_error(response, tranquil.Unreachable)
+            result.map_error(response, tranquil.error_to_problem(
+              _,
+              from: "the directory",
+            ))
             |> result.try(fn(response) {
               identity_history.read(response.body)
-              |> result.replace_error(tranquil.NotUnderstood)
+              |> result.replace_error(tranquil.Problem(
+                service: "the directory",
+                reason: tranquil.NotUnderstood,
+              ))
             }),
           )
         }),
@@ -99,7 +105,10 @@ pub fn init(
         identity.document_request(settings.directory, account),
         rsvp.expect_ok_response(fn(response) {
           DirectoryReturnedDocument(
-            result.replace_error(response, tranquil.Unreachable)
+            result.map_error(response, tranquil.error_to_problem(
+              _,
+              from: "the directory",
+            ))
             |> result.try(fn(response) { read(response.body) }),
           )
         }),
@@ -159,7 +168,10 @@ pub fn read(body: String) -> Result(Identity, Problem) {
       json: json_text.pretty(raw),
     )
   }
-  |> result.replace_error(tranquil.NotUnderstood)
+  |> result.replace_error(tranquil.Problem(
+    service: "the directory",
+    reason: tranquil.NotUnderstood,
+  ))
 }
 
 pub fn view(model: Model) -> Element(Message) {
