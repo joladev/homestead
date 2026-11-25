@@ -75,29 +75,38 @@ type Problem {
   SessionEnded
 }
 
-pub fn init(settings: Settings, accounts: List(StoredAccount)) -> Model {
-  Model(
-    settings:,
-    accounts:,
-    removing: [],
-    chosen_account: None,
-    identifier: "",
-    suggestions: Hidden(actors: []),
-    lookup: NotStarted,
-    entry: None,
+pub fn init(settings: Settings) -> #(Model, Effect(Message)) {
+  #(
+    Model(
+      settings:,
+      accounts: [],
+      removing: [],
+      chosen_account: None,
+      identifier: "",
+      suggestions: Hidden(actors: []),
+      lookup: NotStarted,
+      entry: None,
+    ),
+    list_accounts(),
   )
+}
+
+fn list_accounts() -> Effect(Message) {
+  use dispatch <- effect.from
+
+  dispatch(BrowserReturnedAccounts(session.stored_accounts()))
 }
 
 pub fn verify(
   settings: Settings,
-  accounts: List(StoredAccount),
   unverified: Unverified,
 ) -> #(Model, Effect(Message)) {
+  let #(model, listing) = init(settings)
   let #(entry, effect) = password_sign_in.verify(unverified)
 
   #(
-    Model(..init(settings, accounts), entry: Some(entry)),
-    effect.map(effect, EntryProducedMessage),
+    Model(..model, entry: Some(entry)),
+    effect.batch([listing, effect.map(effect, EntryProducedMessage)]),
   )
 }
 
@@ -117,6 +126,7 @@ pub opaque type Message {
   UserPickedAccount(did: Did)
   UserSignedOutAccount(did: Did)
   BrowserRemovedAccount(did: Did)
+  BrowserReturnedAccounts(accounts: List(StoredAccount))
   UserTypedIdentifier(identifier: String)
   UserPausedTyping(query: String)
   UserPressedArrow(direction: Direction)
@@ -179,6 +189,11 @@ fn update_while_entering(
 
     BrowserRemovedAccount(did:) -> #(without_account(model, did), effect.none())
 
+    BrowserReturnedAccounts(accounts:) -> #(
+      Model(..model, accounts:),
+      effect.none(),
+    )
+
     UserPickedAccount(..)
     | UserSignedOutAccount(..)
     | UserTypedIdentifier(..)
@@ -214,6 +229,11 @@ fn update_while_idle(
     )
 
     BrowserRemovedAccount(did:) -> #(without_account(model, did), effect.none())
+
+    BrowserReturnedAccounts(accounts:) -> #(
+      Model(..model, accounts:),
+      effect.none(),
+    )
 
     UserTypedIdentifier(identifier:) -> {
       let model = Model(..model, identifier:, lookup: NotStarted)
@@ -435,6 +455,11 @@ fn update_while_looking(
     )
 
     BrowserRemovedAccount(did:) -> #(without_account(model, did), effect.none())
+
+    BrowserReturnedAccounts(accounts:) -> #(
+      Model(..model, accounts:),
+      effect.none(),
+    )
 
     UserPickedAccount(..)
     | UserSignedOutAccount(..)

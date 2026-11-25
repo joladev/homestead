@@ -9,6 +9,7 @@ import gleam/uri.{type Uri, Uri}
 import homestead/about
 import homestead/browser
 import homestead/dashboard
+import homestead/media_archive
 import homestead/route.{type Route, Overview}
 import homestead/session.{type Session}
 import homestead/setting.{type Settings}
@@ -49,7 +50,12 @@ fn run(settings: Settings, location: Uri) -> Nil {
     lustre.start(
       app,
       "#app",
-      Start(settings:, location:, local_offset: calendar.local_offset()),
+      Start(
+        settings:,
+        location:,
+        local_offset: calendar.local_offset(),
+        saves_to_disk: media_archive.saves_to_disk(),
+      ),
     )
 
   Nil
@@ -79,7 +85,12 @@ fn view_unreadable_settings() -> Element(message) {
 }
 
 type Start {
-  Start(settings: Settings, location: Uri, local_offset: Duration)
+  Start(
+    settings: Settings,
+    location: Uri,
+    local_offset: Duration,
+    saves_to_disk: Bool,
+  )
 }
 
 type Model {
@@ -87,6 +98,7 @@ type Model {
     settings: Settings,
     local_offset: Duration,
     origin: String,
+    saves_to_disk: Bool,
     state: State,
   )
 }
@@ -102,7 +114,7 @@ type State {
 }
 
 fn init(start: Start) -> #(Model, Effect(Message)) {
-  let Start(settings:, location:, local_offset:) = start
+  let Start(settings:, location:, local_offset:, saves_to_disk:) = start
   let origin =
     uri.to_string(
       Uri(
@@ -118,15 +130,22 @@ fn init(start: Start) -> #(Model, Effect(Message)) {
     location.fragment
   {
     True, Some(answer) -> #(CompletingSignIn, complete_sign_in(answer))
-    True, None -> #(
-      SignedOut(new_sign_in(settings) |> sign_in.report_incomplete_sign_in),
-      show_overview(),
-    )
+    True, None -> {
+      let #(page, effect) = sign_in.init(settings)
+
+      #(
+        SignedOut(sign_in.report_incomplete_sign_in(page)),
+        effect.batch([
+          show_overview(),
+          effect.map(effect, SignInProducedMessage),
+        ]),
+      )
+    }
     False, _ -> enter(settings, location)
   }
 
   #(
-    Model(settings:, local_offset:, origin:, state:),
+    Model(settings:, local_offset:, origin:, saves_to_disk:, state:),
     effect.batch([modem.init(UserNavigatedTo), effect]),
   )
 }
@@ -156,11 +175,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       case sign_up.created(sign_up) {
         Some(unverified) -> {
           let #(sign_in, verification) =
-            sign_in.verify(
-              model.settings,
-              session.stored_accounts(),
-              unverified,
-            )
+            sign_in.verify(model.settings, unverified)
 
           #(
             Model(..model, state: SignedOut(sign_in:)),
@@ -194,15 +209,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       start_dashboard(model, session, route.from_uri(location))
 
     Restoring(_), BrowserRestoredSession(result: Error(session.NothingStored))
-    -> #(
-      Model(..model, state: SignedOut(new_sign_in(model.settings))),
-      effect.none(),
-    )
+    -> show_sign_in(model, function.identity)
 
-    Restoring(_), BrowserRestoredSession(result: Error(_)) -> #(
-      Model(..model, state: ended_session(model.settings)),
-      effect.none(),
-    )
+    Restoring(_), BrowserRestoredSession(result: Error(_)) ->
+      show_sign_in(model, sign_in.report_ended_session)
 
     CompletingSignIn, ServerIssuedSession(result: Ok(session)) -> {
       let #(model, effect) = start_dashboard(model, session, Overview)
@@ -210,15 +220,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       #(model, effect.batch([show_overview(), effect]))
     }
 
-    CompletingSignIn, ServerIssuedSession(result: Error(_)) -> #(
-      Model(
-        ..model,
-        state: SignedOut(
-          new_sign_in(model.settings) |> sign_in.report_incomplete_sign_in,
-        ),
-      ),
-      show_overview(),
-    )
+    CompletingSignIn, ServerIssuedSession(result: Error(_)) -> {
+      let #(model, effect) =
+        show_sign_in(model, sign_in.report_incomplete_sign_in)
+
+      #(model, effect.batch([show_overview(), effect]))
+    }
 
     SignedIn(dashboard:), UserNavigatedTo(uri:) ->
       case front_page(model.settings, uri) {
@@ -245,10 +252,12 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     SignedIn(dashboard:), ServerEndedSession(account:) ->
       case dashboard.account(dashboard) == account {
-        True -> #(
-          Model(..model, state: ended_session(model.settings)),
-          show_overview(),
-        )
+        True -> {
+          let #(model, effect) =
+            show_sign_in(model, sign_in.report_ended_session)
+
+          #(model, effect.batch([show_overview(), effect]))
+        }
         False -> #(model, effect.none())
       }
 
@@ -306,6 +315,7 @@ fn start_dashboard(
         model.settings,
         model.local_offset,
         model.origin,
+        model.saves_to_disk,
         route,
       ),
     )
@@ -346,8 +356,11 @@ fn front_page(
 ) -> Result(#(State, Effect(Message)), Nil) {
   case location.path {
     path if path == about.path -> Ok(#(ReadingAbout, effect.none()))
-    path if path == sign_in.path ->
-      Ok(#(AddingAccount(new_sign_in(settings)), effect.none()))
+    path if path == sign_in.path -> {
+      let #(page, effect) = sign_in.init(settings)
+
+      Ok(#(AddingAccount(page), effect.map(effect, SignInProducedMessage)))
+    }
     "/sign-up" -> {
       let #(sign_up, effect) = sign_up.init(settings, location)
 
@@ -357,12 +370,16 @@ fn front_page(
   }
 }
 
-fn new_sign_in(settings: Settings) -> sign_in.Model {
-  sign_in.init(settings, session.stored_accounts())
-}
+fn show_sign_in(
+  model: Model,
+  report: fn(sign_in.Model) -> sign_in.Model,
+) -> #(Model, Effect(Message)) {
+  let #(page, effect) = sign_in.init(model.settings)
 
-fn ended_session(settings: Settings) -> State {
-  SignedOut(new_sign_in(settings) |> sign_in.report_ended_session)
+  #(
+    Model(..model, state: SignedOut(report(page))),
+    effect.map(effect, SignInProducedMessage),
+  )
 }
 
 fn update_sign_in(

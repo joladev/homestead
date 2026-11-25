@@ -36,7 +36,10 @@ type Archive {
   SavingFailed
 }
 
-pub fn init(session: Session) -> #(Model, Effect(Message)) {
+pub fn init(
+  session: Session,
+  saves_to_disk: Bool,
+) -> #(Model, Effect(Message)) {
   #(
     Model(
       session:,
@@ -44,7 +47,7 @@ pub fn init(session: Session) -> #(Model, Effect(Message)) {
       download: NotDownloading,
       media: Loading,
       archive: NotSaving,
-      saves_to_disk: media_archive.saves_to_disk(),
+      saves_to_disk:,
     ),
     effect.batch([
       tranquil.load(session, tranquil.account(), ServerReturnedAccount),

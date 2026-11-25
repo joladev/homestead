@@ -47,6 +47,7 @@ pub opaque type Model {
     settings: Settings,
     local_offset: Duration,
     origin: String,
+    saves_to_disk: Bool,
     route: Route,
     page: Page,
     account: Remote(tranquil.Account),
@@ -82,6 +83,7 @@ pub fn init(
   settings: Settings,
   local_offset: Duration,
   origin: String,
+  saves_to_disk: Bool,
   route: Route,
 ) -> #(Model, Effect(Message)) {
   #(
@@ -90,21 +92,27 @@ pub fn init(
       settings:,
       local_offset:,
       origin:,
+      saves_to_disk:,
       route:,
       page: PlaceholderPage,
       account: Loading,
-      other_accounts: list.filter(session.stored_accounts(), fn(account) {
-        account.account != session.account(session)
-      }),
+      other_accounts: [],
       is_account_menu_open: False,
       is_menu_open: False,
       departure: None,
     ),
     effect.batch([
       tranquil.load(session, tranquil.account(), ServerReturnedAccount),
+      list_accounts(),
       browser.now(BrowserReturnedTime(route, _)),
     ]),
   )
+}
+
+fn list_accounts() -> Effect(Message) {
+  use dispatch <- effect.from
+
+  dispatch(BrowserReturnedAccounts(session.stored_accounts()))
 }
 
 pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
@@ -141,7 +149,8 @@ fn open(
   route: Route,
   now: Timestamp,
 ) -> #(Page, Effect(Message)) {
-  let Model(session:, settings:, local_offset:, origin:, ..) = model
+  let Model(session:, settings:, local_offset:, origin:, saves_to_disk:, ..) =
+    model
 
   case route {
     Overview -> {
@@ -206,7 +215,7 @@ fn open(
     }
 
     Data(route.Export) -> {
-      let #(page, effect) = export.init(session)
+      let #(page, effect) = export.init(session, saves_to_disk)
 
       #(ExportPage(page), effect.map(effect, ExportProducedMessage))
     }
@@ -298,6 +307,7 @@ pub fn departure(model: Model) -> Option(Departure) {
 
 pub opaque type Message {
   ServerReturnedAccount(result: Result(tranquil.Account, Problem))
+  BrowserReturnedAccounts(accounts: List(StoredAccount))
   BrowserReturnedTime(route: Route, now: Timestamp)
   OverviewProducedMessage(overview.Message)
   SessionsProducedMessage(sessions.Message)
@@ -343,6 +353,16 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ]),
       )
     }
+
+    BrowserReturnedAccounts(accounts:), _ -> #(
+      Model(
+        ..model,
+        other_accounts: list.filter(accounts, fn(account) {
+          account.account != session.account(model.session)
+        }),
+      ),
+      effect.none(),
+    )
 
     BrowserReturnedTime(route:, now:), _ ->
       case route == model.route {
