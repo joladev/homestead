@@ -1,10 +1,10 @@
 import gleam/list
 import gleam/uri
 import homestead/route.{
-  Access, Account, Admin, Advanced, AppPasswords, Collections, ConnectedApps,
-  Data, Delegation, DeleteAccount, Export, IdentityDocument, NewRecord, NotFound,
-  Notifications, Overview, Profile, Record, Records, Relays, Repository,
-  Sessions, SignInMethods,
+  Access, Account, Accounts, Admin, Advanced, AppPasswords, Collections,
+  ConnectedApps, Data, Delegation, DeleteAccount, Export, Flagged,
+  IdentityDocument, NewRecord, NotFound, Notifications, Overview, Profile,
+  Record, Records, Relays, Repository, Sessions, SignInMethods,
 }
 
 pub fn every_page_survives_the_round_trip_through_its_path_test() {
@@ -28,7 +28,9 @@ pub fn every_page_survives_the_round_trip_through_its_path_test() {
     Data(Relays),
     Advanced(Delegation),
     Advanced(IdentityDocument),
-    Admin,
+    Admin(Accounts),
+    Admin(Flagged),
+    Admin(route.Server),
   ]
 
   list.each(pages, fn(page) {

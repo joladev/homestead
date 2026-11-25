@@ -595,6 +595,15 @@ pub fn relay_request(
   query(relay, [subject], [], after)
 }
 
+pub fn accounts_request(
+  relay: Request(String),
+  accounts: List(Did),
+  labelers: List(Did),
+  after: Option(String),
+) -> Request(String) {
+  query(relay, list.map(accounts, did.to_string), labelers, after)
+}
+
 pub fn appview_request(
   appview: Request(String),
   account: Did,

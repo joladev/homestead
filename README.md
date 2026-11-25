@@ -53,6 +53,8 @@ You can run your own Homestead! Feel free to fork and make the design your own, 
 | `HOMESTEAD_APPVIEW`        | `https://public.api.bsky.app`          |
 | `HOMESTEAD_LABEL_RELAY`    | `https://labelers.firehose.stream`     |
 | `HOMESTEAD_DNS`            | `https://dns10.quad9.net/dns-query`    |
+| `HOMESTEAD_TANGLED`        | `https://api.tangled.org`              |
+| `HOMESTEAD_ADMIN_LABELERS` | `did:plc:ar7c4by46qjdydhdevvrndac`     |
 | `HOMESTEAD_RELAYS`         | `bsky.network, relay.fire.hose.cam, relay3.fr.hose.cam, northamerica.firehose.network, europe.firehose.network, asia.firehose.network` |
 | `HOMESTEAD_SIGNUP_SERVERS` | none                                   |
 | `HOMESTEAD_PASSWORD_ENTRY` | `server`                               |

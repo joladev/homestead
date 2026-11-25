@@ -109,9 +109,18 @@ pub fn show(model: Model, route: Route) -> #(Model, Effect(Message)) {
 }
 
 fn is_closed(route: Route, account: Remote(tranquil.Account)) -> Bool {
+  case account, route {
+    Loaded(tranquil.Account(is_admin: False, ..)), Admin(_) -> True
+    Loaded(_), _ | Loading, _ | Failed(_), _ -> False
+  }
+}
+
+fn sections(account: Remote(tranquil.Account)) -> List(Section) {
   case account {
-    Loaded(tranquil.Account(is_admin: False, ..)) -> route == Admin
-    Loading | Loaded(_) | Failed(_) -> False
+    Loaded(tranquil.Account(is_admin: True, ..)) ->
+      list.append(route.sections, [route.admin_section])
+    Loaded(tranquil.Account(is_admin: False, ..)) | Loading | Failed(_) ->
+      route.sections
   }
 }
 
@@ -230,8 +239,8 @@ fn open(
       )
     }
 
-    Admin -> {
-      let #(page, effect) = admin.init(session)
+    Admin(page) -> {
+      let #(page, effect) = admin.init(session, settings, page)
 
       #(AdminPage(page), effect.map(effect, AdminProducedMessage))
     }
@@ -585,7 +594,7 @@ fn account_menu_item(index: Int) -> String {
 
 pub fn view(model: Model) -> Element(Message) {
   let current_section =
-    list.find(route.sections, fn(section) {
+    list.find(sections(model.account), fn(section) {
       list.contains(route.section_pages(section), route.page(model.route))
     })
 
@@ -652,7 +661,7 @@ fn view_top_bar(
   model: Model,
 ) -> Element(Message) {
   let section_links =
-    list.map(route.sections, fn(section) {
+    list.map(sections(model.account), fn(section) {
       html.a(
         [
           route.href(section.first),
@@ -662,20 +671,6 @@ fn view_top_bar(
         [html.text(section.label)],
       )
     })
-  let admin_link = case model.account {
-    Loaded(tranquil.Account(is_admin: True, ..)) ->
-      html.a(
-        [
-          route.href(Admin),
-          attribute.data("label", route.label(Admin)),
-          aria_current(value: "true", is_current: model.route == Admin),
-        ],
-        [html.text(route.label(Admin))],
-      )
-    Loaded(tranquil.Account(is_admin: False, ..)) | Loading | Failed(_) ->
-      element.none()
-  }
-
   let account_name = case model.account {
     Loaded(value: account) -> Ok("@" <> handle.to_string(account.handle))
     Failed(_) -> Ok(did.to_string(session.account(model.session)))
@@ -686,10 +681,7 @@ fn view_top_bar(
     html.a([attribute.class("brand"), route.href(Overview)], [
       html.text("Homestead"),
     ]),
-    html.nav(
-      [attribute.aria_label("Sections")],
-      list.append(section_links, [admin_link]),
-    ),
+    html.nav([attribute.aria_label("Sections")], section_links),
     case account_name {
       Ok(name) ->
         view_account_menu(
@@ -749,7 +741,7 @@ fn view_menu(
     )
   }
   let groups =
-    list.map(route.sections, fn(section) {
+    list.map(sections(model.account), fn(section) {
       case section {
         Section(rest: [], first:, ..) ->
           link(first, [attribute.id(first_menu_link)])
@@ -760,12 +752,6 @@ fn view_menu(
           ])
       }
     })
-  let admin = case model.account {
-    Loaded(tranquil.Account(is_admin: True, ..)) -> link(Admin, [])
-    Loaded(tranquil.Account(is_admin: False, ..)) | Loading | Failed(_) ->
-      element.none()
-  }
-
   html.nav(
     [
       attribute.id("menu"),
@@ -781,7 +767,6 @@ fn view_menu(
     list.flatten([
       groups,
       [
-        admin,
         case model.other_accounts {
           [] -> element.none()
           [_, ..] as others ->
@@ -1001,7 +986,7 @@ fn view_placeholder(route: Route) -> List(Element(Message)) {
       ]),
     ]
 
-    Overview | Account(_) | Access(_) | Data(_) | Advanced(_) | Admin -> [
+    Overview | Account(_) | Access(_) | Data(_) | Advanced(_) | Admin(_) -> [
       heading,
     ]
   }

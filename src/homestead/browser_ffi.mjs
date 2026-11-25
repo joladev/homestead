@@ -45,3 +45,20 @@ export async function copy(text) {
     return Result$Error(undefined);
   }
 }
+
+const PASSWORD_CHARACTERS =
+  "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+export function generatePassword() {
+  for (;;) {
+    const values = crypto.getRandomValues(new Uint32Array(20));
+    const password = Array.from(
+      values,
+      (value) => PASSWORD_CHARACTERS[value % PASSWORD_CHARACTERS.length],
+    ).join("");
+
+    if (/[A-Z]/.test(password) && /[a-z]/.test(password) && /[0-9]/.test(password)) {
+      return password;
+    }
+  }
+}

@@ -10,7 +10,7 @@ pub type Route {
   Access(AccessPage)
   Data(DataPage)
   Advanced(AdvancedPage)
-  Admin
+  Admin(AdminPage)
   NotFound(uri: Uri)
 }
 
@@ -50,6 +50,12 @@ pub type RepositoryLocation {
 pub type AdvancedPage {
   Delegation
   IdentityDocument
+}
+
+pub type AdminPage {
+  Accounts
+  Flagged
+  Server
 }
 
 pub type Section {
@@ -94,6 +100,13 @@ pub const sections = [
   ),
 ]
 
+pub const admin_section =
+  Section(
+    label: "Admin",
+    first: Admin(Accounts),
+    rest: [Admin(Flagged), Admin(Server)],
+  )
+
 pub fn section_pages(section: Section) -> List(Route) {
   [section.first, ..section.rest]
 }
@@ -134,7 +147,9 @@ pub fn from_uri(uri: Uri) -> Route {
     ["data", "relays"] -> Data(Relays)
     ["advanced", "delegation"] -> Advanced(Delegation)
     ["advanced", "identity"] -> Advanced(IdentityDocument)
-    ["admin"] -> Admin
+    ["admin"] -> Admin(Accounts)
+    ["admin", "flagged"] -> Admin(Flagged)
+    ["admin", "server"] -> Admin(Server)
     _ -> NotFound(uri:)
   }
 }
@@ -168,7 +183,9 @@ pub fn to_path(route: Route) -> String {
     Data(Relays) -> "/data/relays"
     Advanced(Delegation) -> "/advanced/delegation"
     Advanced(IdentityDocument) -> "/advanced/identity"
-    Admin -> "/admin"
+    Admin(Accounts) -> "/admin"
+    Admin(Flagged) -> "/admin/flagged"
+    Admin(Server) -> "/admin/server"
     NotFound(uri:) -> uri.path
   }
 }
@@ -190,7 +207,9 @@ pub fn label(route: Route) -> String {
     Data(Relays) -> "Relays"
     Advanced(Delegation) -> "Delegation"
     Advanced(IdentityDocument) -> "Identity document"
-    Admin -> "Admin"
+    Admin(Accounts) -> "Accounts"
+    Admin(Flagged) -> "Flagged accounts"
+    Admin(Server) -> "Server"
     NotFound(_) -> "Page not found"
   }
 }
@@ -213,7 +232,7 @@ pub fn page(route: Route) -> Route {
     | Data(Labels)
     | Data(Relays)
     | Advanced(_)
-    | Admin
+    | Admin(_)
     | NotFound(_) -> route
   }
 }

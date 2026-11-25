@@ -10,7 +10,7 @@ case "$HOMESTEAD_HOST" in
     ;;
 esac
 
-for name in HOMESTEAD_PLC HOMESTEAD_TYPEAHEAD HOMESTEAD_SLINGSHOT HOMESTEAD_CONSTELLATION HOMESTEAD_APPVIEW HOMESTEAD_LABEL_RELAY HOMESTEAD_DNS; do
+for name in HOMESTEAD_PLC HOMESTEAD_TYPEAHEAD HOMESTEAD_SLINGSHOT HOMESTEAD_CONSTELLATION HOMESTEAD_APPVIEW HOMESTEAD_LABEL_RELAY HOMESTEAD_DNS HOMESTEAD_TANGLED; do
   eval "address=\${$name:-}"
 
   case "$address" in
@@ -25,12 +25,12 @@ for name in HOMESTEAD_PLC HOMESTEAD_TYPEAHEAD HOMESTEAD_SLINGSHOT HOMESTEAD_CONS
   esac
 done
 
-for name in HOMESTEAD_RELAYS HOMESTEAD_SIGNUP_SERVERS; do
-  eval "servers=\${$name:-}"
+for name in HOMESTEAD_RELAYS HOMESTEAD_SIGNUP_SERVERS HOMESTEAD_ADMIN_LABELERS; do
+  eval "entries=\${$name:-}"
 
-  case "$servers" in
-    *[!A-Za-z0-9.:/_~,\ -]*)
-      echo "$name must be a comma-separated list of server names: $servers" >&2
+  case "$entries" in
+    *[!A-Za-z0-9.:/_~,%\ -]*)
+      echo "$name must be a comma-separated list: $entries" >&2
       exit 1
       ;;
   esac

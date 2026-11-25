@@ -1,3 +1,4 @@
+import at/did.{type Did}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/fetch
 import gleam/http/request.{type Request}
@@ -18,7 +19,9 @@ pub type Settings {
     appview: Request(String),
     label_relay: Request(String),
     dns: Request(String),
+    tangled: Request(String),
     relays: List(Request(String)),
+    admin_labelers: List(Did),
     sign_up_servers: List(Request(String)),
     password_entry: PasswordEntry,
   )
@@ -62,6 +65,12 @@ pub fn decoder() -> Decoder(Settings) {
     "dns",
     at("dns10.quad9.net") |> request.set_path("/dns-query"),
   )
+  use tangled <- service("tangled", at("api.tangled.org"))
+  use admin_labelers <- decode.optional_field(
+    "adminLabelers",
+    default_labelers(),
+    labelers_decoder(),
+  )
   use relays <- decode.optional_field(
     "relays",
     default_relays(),
@@ -86,7 +95,9 @@ pub fn decoder() -> Decoder(Settings) {
     appview:,
     label_relay:,
     dns:,
+    tangled:,
     relays:,
+    admin_labelers:,
     sign_up_servers:,
     password_entry:,
   ))
@@ -99,6 +110,27 @@ fn password_entry_decoder() -> Decoder(PasswordEntry) {
     "" | "server" -> decode.success(ServerFirst)
     "homestead" -> decode.success(HomesteadFirst)
     _ -> decode.failure(ServerFirst, "PasswordEntry")
+  }
+}
+
+fn default_labelers() -> List(Did) {
+  let assert Ok(bluesky) = did.from_string("did:plc:ar7c4by46qjdydhdevvrndac")
+
+  [bluesky]
+}
+
+fn labelers_decoder() -> Decoder(List(Did)) {
+  use names <- decode.then(decode.string)
+  let labelers =
+    string.split(names, on: ",")
+    |> list.map(string.trim)
+    |> list.filter(fn(name) { name != "" })
+    |> list.try_map(did.from_string)
+
+  case labelers {
+    Ok([]) -> decode.success(default_labelers())
+    Ok(labelers) -> decode.success(labelers)
+    Error(Nil) -> decode.failure([], "Labelers")
   }
 }
 

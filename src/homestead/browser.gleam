@@ -53,6 +53,15 @@ pub fn copy(
   await(fn() { do_copy(text) }, to_message)
 }
 
+pub fn generate_password(to_message: fn(String) -> message) -> Effect(message) {
+  use dispatch <- effect.from
+
+  dispatch(to_message(do_generate_password()))
+}
+
+@external(javascript, "./browser_ffi.mjs", "generatePassword")
+fn do_generate_password() -> String
+
 @external(javascript, "./browser_ffi.mjs", "focus")
 fn do_focus(id: String) -> Nil
 

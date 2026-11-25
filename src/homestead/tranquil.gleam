@@ -38,6 +38,10 @@ pub fn server_address(text: String) -> Result(Request(String), Nil) {
   }
 }
 
+pub const repository = "did:plc:jj6ajj6duxnlthwtnob4qyuv"
+
+pub const releases = "https://tangled.org/tranquil.farm/tranquil-pds/tags"
+
 pub fn server_name(server: Request(String)) -> String {
   case server.port {
     Some(port) -> server.host <> ":" <> int.to_string(port)
@@ -349,6 +353,25 @@ pub type AccountPage {
   AccountPage(accounts: List(ListedAccount), next: Option(String))
 }
 
+pub type AccountState {
+  Running
+  Deactivated
+  TakenDown
+  OtherState(name: String)
+}
+
+pub type HostedAccount {
+  HostedAccount(did: Did, state: AccountState)
+}
+
+pub type HostedPage {
+  HostedPage(accounts: List(HostedAccount), next: Option(String))
+}
+
+pub type AccountDetails {
+  AccountDetails(invited_by: Option(Did))
+}
+
 pub type InviteCode {
   InviteCode(
     code: String,
@@ -635,20 +658,12 @@ pub fn server_totals() -> Query(ServerTotals) {
   })
 }
 
-pub fn find_accounts(
-  handle: String,
-  after: Option(String),
-) -> Query(AccountPage) {
-  let page = case handle {
-    "" -> [#("limit", "25")]
-    handle -> [#("limit", "25"), #("handle", handle)]
-  }
-
+pub fn accounts(after: Option(String)) -> Query(AccountPage) {
   query(
     "com.atproto.admin.searchAccounts",
     case after {
-      Some(cursor) -> list.append(page, [#("cursor", cursor)])
-      None -> page
+      Some(cursor) -> [#("limit", "100"), #("cursor", cursor)]
+      None -> [#("limit", "100")]
     },
     {
       use accounts <- decode.field(
@@ -682,6 +697,64 @@ pub fn find_accounts(
       decode.success(AccountPage(accounts:, next:))
     },
   )
+}
+
+pub fn hosted_accounts(after: Option(String)) -> Query(HostedPage) {
+  query(
+    "com.atproto.sync.listRepos",
+    case after {
+      Some(cursor) -> [#("limit", "1000"), #("cursor", cursor)]
+      None -> [#("limit", "1000")]
+    },
+    {
+      use accounts <- decode.field(
+        "repos",
+        decode.list({
+          use did <- decode.field("did", did.decoder())
+          use is_active <- decode.field("active", decode.bool)
+          use status <- optional_text("status")
+
+          decode.success(
+            HostedAccount(did:, state: case is_active, status {
+              True, _ -> Running
+              False, Some("takendown") -> TakenDown
+              False, Some("deactivated") -> Deactivated
+              False, Some(name) -> OtherState(name:)
+              False, None -> OtherState(name: "inactive")
+            }),
+          )
+        }),
+      )
+      use next <- optional_text("cursor")
+
+      decode.success(HostedPage(accounts:, next:))
+    },
+  )
+}
+
+pub fn account_details(account: Did) -> Query(AccountDetails) {
+  query(
+    "com.atproto.admin.getAccountInfo",
+    [#("did", did.to_string(account))],
+    {
+      use invited_by <- decode.optional_field(
+        "invitedBy",
+        None,
+        decode.optional_field(
+          "createdBy",
+          None,
+          decode.optional(did.decoder()),
+          decode.success,
+        ),
+      )
+
+      decode.success(AccountDetails(invited_by:))
+    },
+  )
+}
+
+pub fn software() -> Query(Software) {
+  query("_health", [], health_decoder())
 }
 
 pub fn invite_codes_required() -> Query(Bool) {
@@ -1233,6 +1306,79 @@ pub fn set_account_invites(account: Did, enabled: Bool) -> Command(Nil) {
       False -> "com.atproto.admin.disableAccountInvites"
     },
     json.object([#("account", did.to_json(account))]),
+  )
+}
+
+pub fn set_takedown(account: Did, is_applied: Bool) -> Command(Nil) {
+  command(
+    "com.atproto.admin.updateSubjectStatus",
+    json.object([
+      #(
+        "subject",
+        json.object([
+          #("$type", json.string("com.atproto.admin.defs#repoRef")),
+          #("did", did.to_json(account)),
+        ]),
+      ),
+      #("takedown", json.object([#("applied", json.bool(is_applied))])),
+    ]),
+  )
+}
+
+pub fn reset_account_password(account: Did, password: String) -> Command(Nil) {
+  command(
+    "com.atproto.admin.updateAccountPassword",
+    json.object([
+      #("did", did.to_json(account)),
+      #("password", json.string(password)),
+    ]),
+  )
+}
+
+pub fn change_account_handle(account: Did, handle: Handle) -> Command(Nil) {
+  command(
+    "com.atproto.admin.updateAccountHandle",
+    json.object([
+      #("did", did.to_json(account)),
+      #("handle", handle.to_json(handle)),
+    ]),
+  )
+}
+
+pub fn change_account_email(account: Did, email: String) -> Command(Nil) {
+  command(
+    "com.atproto.admin.updateAccountEmail",
+    json.object([
+      #("account", did.to_json(account)),
+      #("email", json.string(email)),
+    ]),
+  )
+}
+
+pub fn send_email(
+  to recipient: Did,
+  from sender: Did,
+  subject subject: String,
+  text text: String,
+) -> Command(Nil) {
+  command(
+    "com.atproto.admin.sendEmail",
+    json.object([
+      #("recipientDid", did.to_json(recipient)),
+      #("senderDid", did.to_json(sender)),
+      #("subject", json.string(subject)),
+      #("content", json.string(text)),
+    ]),
+  )
+}
+
+pub fn set_admin(account: Did, is_admin: Bool) -> Command(Nil) {
+  command(
+    "_admin.setAdminStatus",
+    json.object([
+      #("did", did.to_json(account)),
+      #("admin", json.bool(is_admin)),
+    ]),
   )
 }
 
