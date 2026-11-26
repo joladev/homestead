@@ -4,9 +4,7 @@ import gleam/bit_array
 import gleam/http/request
 import gleam/http/response
 import gleam/option.{Some}
-import homestead/profile.{
-  Absent, Malformed, PointsElsewhere, PointsHere, Unreadable,
-}
+import homestead/profile.{Absent, Malformed, PointsElsewhere, PointsHere}
 import homestead/tranquil
 import rsvp
 
@@ -61,9 +59,11 @@ pub fn a_dns_reply_is_judged_by_its_text_record_test() {
 pub fn a_handle_file_is_judged_by_its_content_test() {
   let finding = profile.file_finding(_, account())
 
-  assert finding(answered("did:plc:ewvi7nxzyoun6zhxrhs64oiz\n")) == PointsHere
+  assert finding(answered("did:plc:ewvi7nxzyoun6zhxrhs64oiz\n"))
+    == Ok(PointsHere)
   assert finding(answered("did:plc:ar7c4by46qjdydhdevvrndac"))
-    == PointsElsewhere
-  assert finding(answered("did=did:plc:ewvi7nxzyoun6zhxrhs64oiz")) == Malformed
-  assert finding(Error(rsvp.NetworkError)) == Unreadable
+    == Ok(PointsElsewhere)
+  assert finding(answered("did=did:plc:ewvi7nxzyoun6zhxrhs64oiz"))
+    == Ok(Malformed)
+  assert finding(Error(rsvp.NetworkError)) == Error(Nil)
 }

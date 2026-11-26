@@ -49,6 +49,15 @@ export async function copy(text) {
 const PASSWORD_CHARACTERS =
   "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
+export async function probe(address) {
+  try {
+    await fetch(address, { mode: "no-cors" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function generatePassword() {
   for (;;) {
     const values = crypto.getRandomValues(new Uint32Array(20));

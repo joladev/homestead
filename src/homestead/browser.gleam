@@ -66,6 +66,31 @@ pub fn generate_password(to_message: fn(String) -> message) -> Effect(message) {
   dispatch(to_message(do_generate_password()))
 }
 
+pub type Probe {
+  Answered
+  Unanswered
+}
+
+pub fn probe(
+  address: String,
+  to_message: fn(Probe) -> message,
+) -> Effect(message) {
+  await(
+    fn() {
+      use is_answered <- promise.map(do_probe(address))
+
+      case is_answered {
+        True -> Answered
+        False -> Unanswered
+      }
+    },
+    to_message,
+  )
+}
+
+@external(javascript, "./browser_ffi.mjs", "probe")
+fn do_probe(address: String) -> Promise(Bool)
+
 @external(javascript, "./browser_ffi.mjs", "generatePassword")
 fn do_generate_password() -> String
 

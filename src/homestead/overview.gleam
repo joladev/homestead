@@ -137,7 +137,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       Model(
         ..model,
         verified_handle: slingshot.verified_handle(returned)
-          |> result.map_error(tranquil.error_to_problem(_, from: "Slingshot"))
+          |> result.map_error(tranquil.error_to_problem(
+            _,
+            from: "the identity resolver",
+          ))
           |> remote.from_result,
       ),
       effect.none(),

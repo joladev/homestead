@@ -8,6 +8,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/uri
 import homestead/browser
 import homestead/layout
 import homestead/remote.{
@@ -42,11 +43,16 @@ pub opaque type Model {
   )
 }
 
+type WellKnown {
+  Readable(finding: Finding)
+  NoCorsHeader
+}
+
 type Check {
   Check(
     verified: Remote(Option(Handle)),
     record: Remote(Finding),
-    file: Remote(Finding),
+    file: Remote(WellKnown),
   )
 }
 
@@ -147,7 +153,11 @@ pub opaque type Message {
   UserClickedCheckHandle
   SlingshotReturnedHandle(result: Result(Handle, rsvp.Error(String)))
   DnsReturnedRecords(result: Result(Response(BitArray), rsvp.Error(BitArray)))
-  HandleHostReturnedFile(result: Result(Response(String), rsvp.Error(String)))
+  HandleHostReturnedFile(
+    handle: Handle,
+    result: Result(Response(String), rsvp.Error(String)),
+  )
+  BrowserProbedHandleHost(handle: Handle, probe: browser.Probe)
   UserClickedCopy(text: String, copied: Copied)
   BrowserCopiedText(copied: Copied, result: Result(Nil, Nil))
   UserClickedResend
@@ -195,7 +205,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         check: Check(
           ..model.check,
           verified: slingshot.verified_handle(returned)
-            |> result.map_error(tranquil.error_to_problem(_, from: "Slingshot"))
+            |> result.map_error(tranquil.error_to_problem(
+              _,
+              from: "the identity resolver",
+            ))
             |> remote.from_result,
         ),
       ),
@@ -214,13 +227,36 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
 
-    HandleHostReturnedFile(result: returned) -> #(
+    HandleHostReturnedFile(handle:, result: returned) -> {
+      case file_finding(returned, session.account(session)) {
+        Ok(finding) -> #(
+          Model(
+            ..model,
+            check: Check(..model.check, file: Loaded(Readable(finding:))),
+          ),
+          effect.none(),
+        )
+        Error(Nil) -> #(
+          model,
+          browser.probe(well_known_address(handle), BrowserProbedHandleHost(
+            handle,
+            _,
+          )),
+        )
+      }
+    }
+
+    BrowserProbedHandleHost(handle:, probe:) -> #(
       Model(
         ..model,
-        check: Check(
-          ..model.check,
-          file: Loaded(file_finding(returned, session.account(session))),
-        ),
+        check: Check(..model.check, file: case probe {
+          browser.Answered -> Loaded(NoCorsHeader)
+          browser.Unanswered ->
+            Failed(tranquil.Problem(
+              service: handle.to_string(handle),
+              reason: tranquil.Unreachable,
+            ))
+        }),
       ),
       effect.none(),
     )
@@ -595,7 +631,7 @@ fn check_handle(
         ),
         rsvp.send(
           handle.resolve(handle),
-          rsvp.expect_ok_response(HandleHostReturnedFile),
+          rsvp.expect_ok_response(HandleHostReturnedFile(handle, _)),
         ),
       ]),
     )
@@ -664,6 +700,7 @@ pub fn view(model: Model) -> Element(Message) {
   layout.page([
     layout.title_section("handle", [
       view_handle(
+        model.settings,
         model.handle,
         model.check,
         model.account,
@@ -696,13 +733,22 @@ pub fn view(model: Model) -> Element(Message) {
   ])
 }
 
+fn well_known_address(handle: Handle) -> String {
+  handle.resolve(handle) |> request.to_uri |> uri.to_string
+}
+
 fn view_handle(
+  settings: Settings,
   form: HandleForm,
   check: Check,
   account: Remote(Account),
   server: Remote(Server),
   owner: Did,
 ) -> Element(Message) {
+  let current = case account {
+    Loaded(value: account) -> Some(account.handle)
+    Loading | Failed(_) -> None
+  }
   let resolves = {
     use account <- remote.then(account)
     use verified <- remote.map(check.verified)
@@ -714,126 +760,224 @@ fn view_handle(
     || check.record == Loading
     || check.file == Loading
 
-  layout.block([
-    layout.row(
-      tone: layout.Plain,
-      name: "Handle",
-      details: [
-        {
-          use account <- layout.value(account)
-
-          html.code([], [html.text("@" <> handle.to_string(account.handle))])
-        },
-      ],
-      actions: [
-        html.button(
-          [
-            attribute.class("action"),
-            attribute.type_("button"),
-            attribute.disabled(is_checking),
-            event.on_click(UserClickedCheckHandle),
-          ],
-          [html.text("Check again")],
-        ),
-      ],
-    ),
-    case resolves {
-      Loading -> view_pending_check("Slingshot")
-      Loaded(value: True) ->
-        view_check("Slingshot", layout.Plain, "resolves to this account")
-      Loaded(value: False) ->
-        view_check(
-          "Slingshot",
-          layout.Warning,
-          "doesn't resolve to this account",
-        )
-      Failed(_) -> view_check("Slingshot", layout.Plain, "couldn't be checked")
-    },
-    view_finding("DNS record", check.record),
-    view_finding("File", check.file),
-    html.form([event.on_submit(fn(_) { UserSubmittedHandle })], [
-      layout.field(
-        html.label([attribute.for("new-handle")], [html.text("New handle")]),
-        html.div([attribute.class("inline")], [
-          html.input([
-            attribute.id("new-handle"),
-            attribute.type_("text"),
-            attribute.value(form.name),
-            attribute.autocomplete("off"),
-            attribute.autocapitalize("none"),
-            attribute.spellcheck(False),
-            attribute.disabled(form.submission == Sending),
-            event.on_input(UserTypedHandle),
-          ]),
+  element.fragment([
+    layout.block([
+      layout.row(
+        tone: layout.Plain,
+        name: "Handle",
+        details: [
           {
-            use server <- layout.value(server)
-            let domains = list.map(server.handle_domains, ServerDomain)
+            use account <- layout.value(account)
 
-            html.div(
-              [
-                attribute.class("choices"),
-                attribute.role("radiogroup"),
-                attribute.aria_label("Domain"),
-              ],
-              list.map(list.append(domains, [OwnDomain]), fn(domain) {
-                html.label([], [
-                  html.input([
-                    attribute.type_("radio"),
-                    attribute.name("handle-domain"),
-                    attribute.checked(domain == form.domain),
-                    event.on_click(UserPickedDomain(domain)),
-                  ]),
-                  html.span([], [
-                    html.text(case domain {
-                      ServerDomain(domain:) -> "." <> domain
-                      OwnDomain -> "My own domain"
-                    }),
-                  ]),
-                ])
-              }),
-            )
+            html.code([], [html.text("@" <> handle.to_string(account.handle))])
           },
-        ]),
+        ],
+        actions: [
+          html.button(
+            [
+              attribute.class("action"),
+              attribute.type_("button"),
+              attribute.disabled(is_checking),
+              event.on_click(UserClickedCheckHandle),
+            ],
+            [html.text("Check again")],
+          ),
+        ],
       ),
-      case form.domain, server {
-        OwnDomain, Loaded(_) | OwnDomain, Failed(_) ->
-          view_domain_setup(form, owner)
-        OwnDomain, Loading | ServerDomain(_), _ -> element.none()
-      },
-      view_refusal(form.submission),
-      layout.details_row([
-        view_submit(
-          label: "Change",
-          submission: form.submission,
-          is_incomplete: string.trim(form.name) == "",
+      view_resolver(
+        resolves,
+        "Checked with " <> tranquil.server_name(settings.slingshot) <> ".",
+      ),
+      view_record(
+        check.record,
+        option.map(current, fn(handle) {
+          "TXT "
+          <> handle.dns_hostname(handle)
+          <> " via "
+          <> tranquil.server_name(settings.dns)
+          <> "."
+        }),
+      ),
+      view_file(check.file, option.map(current, well_known_address)),
+    ]),
+    layout.block_apart([
+      html.form([event.on_submit(fn(_) { UserSubmittedHandle })], [
+        layout.field(
+          html.label([attribute.for("new-handle")], [html.text("New handle")]),
+          html.div([attribute.class("inline")], [
+            html.input([
+              attribute.id("new-handle"),
+              attribute.type_("text"),
+              attribute.value(form.name),
+              attribute.autocomplete("off"),
+              attribute.autocapitalize("none"),
+              attribute.spellcheck(False),
+              attribute.disabled(form.submission == Sending),
+              event.on_input(UserTypedHandle),
+            ]),
+            {
+              use server <- layout.value(server)
+              let domains = list.map(server.handle_domains, ServerDomain)
+
+              html.div(
+                [
+                  attribute.class("choices"),
+                  attribute.role("radiogroup"),
+                  attribute.aria_label("Domain"),
+                ],
+                list.map(list.append(domains, [OwnDomain]), fn(domain) {
+                  html.label([], [
+                    html.input([
+                      attribute.type_("radio"),
+                      attribute.name("handle-domain"),
+                      attribute.checked(domain == form.domain),
+                      event.on_click(UserPickedDomain(domain)),
+                    ]),
+                    html.span([], [
+                      html.text(case domain {
+                        ServerDomain(domain:) -> "." <> domain
+                        OwnDomain -> "My own domain"
+                      }),
+                    ]),
+                  ])
+                }),
+              )
+            },
+          ]),
         ),
+        case form.domain, server {
+          OwnDomain, Loaded(_) | OwnDomain, Failed(_) ->
+            view_domain_setup(form, owner)
+          OwnDomain, Loading | ServerDomain(_), _ -> element.none()
+        },
+        view_refusal(form.submission),
+        layout.details_row([
+          view_submit(
+            label: "Change",
+            submission: form.submission,
+            is_incomplete: string.trim(form.name) == "",
+          ),
+        ]),
       ]),
     ]),
   ])
 }
 
-fn view_finding(name: String, finding: Remote(Finding)) -> Element(Message) {
-  case finding {
+type Mark {
+  Confirms
+  Contradicts
+  Silent
+}
+
+fn view_resolver(resolves: Remote(Bool), detail: String) -> Element(Message) {
+  let name = "Identity resolver"
+  let detail = Some(detail)
+
+  case resolves {
     Loading -> view_pending_check(name)
-    Failed(_) -> view_check(name, layout.Plain, "couldn't be checked")
-    Loaded(value: PointsHere) ->
-      view_check(name, layout.Plain, "points to this account")
-    Loaded(value: PointsElsewhere) ->
-      view_check(name, layout.Warning, "points to another account")
-    Loaded(value: Malformed) ->
-      view_check(name, layout.Plain, "doesn't contain a DID")
-    Loaded(value: Absent) -> view_check(name, layout.Plain, "not found")
-    Loaded(value: Unreadable) ->
-      view_check(name, layout.Plain, "can't be read from a browser")
+    Loaded(value: True) ->
+      view_check(name, Confirms, "resolves to this account", detail)
+    Loaded(value: False) ->
+      view_check(name, Contradicts, "doesn't resolve to this account", detail)
+    Failed(problem:) ->
+      view_check(name, Silent, describe_check_failure(problem), detail)
+  }
+}
+
+fn view_record(
+  record: Remote(Finding),
+  detail: Option(String),
+) -> Element(Message) {
+  let name = "DNS record"
+
+  case record {
+    Loading -> view_pending_check(name)
+    Failed(problem:) ->
+      view_check(name, Silent, describe_check_failure(problem), detail)
+    Loaded(value: finding) -> view_finding(name, finding, detail)
+  }
+}
+
+fn view_file(
+  file: Remote(WellKnown),
+  address: Option(String),
+) -> Element(Message) {
+  let name = "Well-known file"
+
+  case file {
+    Loading -> view_pending_check(name)
+    Failed(problem:) ->
+      view_check(name, Silent, describe_check_failure(problem), address)
+    Loaded(value: Readable(finding:)) -> view_finding(name, finding, address)
+    Loaded(value: NoCorsHeader) ->
+      view_check(
+        name,
+        Silent,
+        "no CORS header",
+        option.map(address, fn(address) {
+          address <> ". The response has no Access-Control-Allow-Origin header."
+        }),
+      )
+  }
+}
+
+fn view_finding(
+  name: String,
+  finding: Finding,
+  detail: Option(String),
+) -> Element(Message) {
+  case finding {
+    PointsHere -> view_check(name, Confirms, "points to this account", detail)
+    PointsElsewhere ->
+      view_check(name, Contradicts, "points to another account", detail)
+    Malformed -> view_check(name, Silent, "doesn't contain a DID", detail)
+    Absent -> view_check(name, Silent, "not found", detail)
+  }
+}
+
+fn describe_check_failure(problem: tranquil.Problem) -> String {
+  case problem.reason {
+    tranquil.Unreachable -> "couldn't reach " <> problem.service
+    tranquil.Refused(error:, ..) -> problem.service <> " answered " <> error
+    tranquil.NotUnderstood -> "couldn't read " <> problem.service <> "'s answer"
   }
 }
 
 fn view_check(
   name: String,
-  tone: layout.Tone,
+  mark: Mark,
   fact: String,
+  detail: Option(String),
 ) -> Element(Message) {
-  layout.row(tone:, name:, details: [html.text(fact)], actions: [])
+  let summary = [
+    html.span([attribute.class("mark"), attribute.aria_hidden(True)], [
+      html.text(case mark {
+        Confirms -> "\u{2713}"
+        Contradicts -> "\u{2717}"
+        Silent -> "\u{2013}"
+      }),
+    ]),
+    html.span([attribute.class("fact")], [html.text(fact)]),
+  ]
+
+  layout.row(
+    tone: case mark {
+      Contradicts -> layout.Warning
+      Confirms | Silent -> layout.Plain
+    },
+    name:,
+    details: [
+      case detail {
+        None -> html.span([attribute.class("check")], summary)
+        Some(detail) ->
+          html.details([attribute.class("check")], [
+            html.summary([], summary),
+            html.p([], [html.text(detail)]),
+          ])
+      },
+    ],
+    actions: [],
+  )
 }
 
 fn view_pending_check(name: String) -> Element(Message) {
@@ -1265,7 +1409,6 @@ pub type Finding {
   PointsElsewhere
   Malformed
   Absent
-  Unreadable
 }
 
 pub fn record_request(
@@ -1381,19 +1524,18 @@ pub fn record_finding(
 pub fn file_finding(
   result: Result(Response(String), rsvp.Error(String)),
   account: Did,
-) -> Finding {
+) -> Result(Finding, Nil) {
   case result {
     Ok(response) ->
-      case did.from_string(string.trim(response.body)) {
+      Ok(case did.from_string(string.trim(response.body)) {
         Ok(named) if named == account -> PointsHere
         Ok(_) -> PointsElsewhere
         Error(Nil) -> Malformed
-      }
-    Error(rsvp.HttpError(_)) -> Absent
+      })
+    Error(rsvp.HttpError(_)) -> Ok(Absent)
     Error(rsvp.BadBody)
-    | Error(rsvp.BadUrl(_))
     | Error(rsvp.JsonError(_))
-    | Error(rsvp.NetworkError)
-    | Error(rsvp.UnhandledResponse(_)) -> Unreadable
+    | Error(rsvp.UnhandledResponse(_)) -> Ok(Malformed)
+    Error(rsvp.NetworkError) | Error(rsvp.BadUrl(_)) -> Error(Nil)
   }
 }

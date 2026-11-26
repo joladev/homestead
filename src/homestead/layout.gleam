@@ -192,6 +192,10 @@ pub fn block(rows: List(Element(message))) -> Element(message) {
   html.div([attribute.class("block")], rows)
 }
 
+pub fn block_apart(rows: List(Element(message))) -> Element(message) {
+  html.div([attribute.class("block apart")], rows)
+}
+
 pub fn row(
   tone tone: Tone,
   name name: String,
