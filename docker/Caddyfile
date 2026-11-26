@@ -42,6 +42,7 @@
 		handle {
 			header Cache-Control "no-cache"
 			try_files {path} /index.html
+			templates
 			file_server
 		}
 	}
