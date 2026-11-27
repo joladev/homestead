@@ -656,8 +656,8 @@ pub fn contact_preferences() -> Query(ContactPreferences) {
   })
 }
 
-pub type Profile {
-  Profile(
+pub type ProfileRecord {
+  ProfileRecord(
     name: Option(String),
     description: Option(String),
     avatar: Option(String),
@@ -665,30 +665,7 @@ pub type Profile {
   )
 }
 
-pub fn profile(account: Did) -> Query(Profile) {
-  let image = fn(field: String) {
-    decode.one_of(
-      decode.at(["value", field, "ref", "$link"], decode.string)
-        |> decode.map(Some),
-      [
-        decode.at(["value", field, "cid"], decode.string) |> decode.map(Some),
-        decode.success(None),
-      ],
-    )
-  }
-  let text = fn(field: String) {
-    use text <- decode.map(decode.optionally_at(
-      ["value", field],
-      "",
-      decode.string,
-    ))
-
-    case text {
-      "" -> None
-      text -> Some(text)
-    }
-  }
-
+pub fn profile_record(account: Did) -> Query(ProfileRecord) {
   query(
     "com.atproto.repo.getRecord",
     [
@@ -697,13 +674,37 @@ pub fn profile(account: Did) -> Query(Profile) {
       #("rkey", "self"),
     ],
     {
-      use name <- decode.then(text("displayName"))
-      use description <- decode.then(text("description"))
-      use avatar <- decode.then(image("avatar"))
-      use banner <- decode.then(image("banner"))
+      use name <- decode.then(record_text("displayName"))
+      use description <- decode.then(record_text("description"))
+      use avatar <- decode.then(record_image("avatar"))
+      use banner <- decode.then(record_image("banner"))
 
-      decode.success(Profile(name:, description:, avatar:, banner:))
+      decode.success(ProfileRecord(name:, description:, avatar:, banner:))
     },
+  )
+}
+
+fn record_text(field: String) -> Decoder(Option(String)) {
+  use value <- decode.map(decode.optionally_at(
+    ["value", field],
+    "",
+    decode.string,
+  ))
+
+  case value {
+    "" -> None
+    value -> Some(value)
+  }
+}
+
+fn record_image(field: String) -> Decoder(Option(String)) {
+  decode.one_of(
+    decode.at(["value", field, "ref", "$link"], decode.string)
+      |> decode.map(Some),
+    [
+      decode.at(["value", field, "cid"], decode.string) |> decode.map(Some),
+      decode.success(None),
+    ],
   )
 }
 

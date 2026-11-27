@@ -54,6 +54,25 @@ pub fn section_with_actions(
   ])
 }
 
+pub fn section_with_state(
+  prompt prompt: String,
+  tone tone: Tone,
+  state state: Element(message),
+  aside aside: List(Element(message)),
+  content content: List(Element(message)),
+) -> Element(message) {
+  html.section([], [
+    heading(
+      html.h2([attribute.class("prompt")], [
+        html.text(prompt),
+        html.span([attribute.class("state"), tone_class(tone)], [state]),
+      ]),
+      aside,
+    ),
+    ..content
+  ])
+}
+
 pub fn path_section(
   path: List(Element(message)),
   content: List(Element(message)),
@@ -209,6 +228,22 @@ pub fn row(
   ])
 }
 
+pub fn row_with_aside(
+  tone tone: Tone,
+  name name: String,
+  details details: List(Element(message)),
+  aside aside: Option(String),
+) -> Element(message) {
+  html.div([attribute.class("row"), tone_class(tone)], [
+    html.strong([], [html.text(name)]),
+    html.span([attribute.class("details")], details),
+    case aside {
+      Some(aside) -> html.span([attribute.class("aside")], [html.text(aside)])
+      None -> element.none()
+    },
+  ])
+}
+
 pub fn linked_row(
   to to: Attribute(message),
   name name: String,
@@ -293,7 +328,7 @@ pub type Mark {
 pub fn check(
   mark mark: Mark,
   fact fact: String,
-  detail detail: Option(String),
+  detail detail: List(String),
 ) -> Element(message) {
   let summary = [
     html.span([attribute.class("mark"), attribute.aria_hidden(True)], [
@@ -307,11 +342,11 @@ pub fn check(
   ]
 
   case detail {
-    None -> html.span([attribute.class("check")], summary)
-    Some(detail) ->
-      html.details([attribute.class("check")], [
+    [] -> html.span([attribute.class("check")], summary)
+    [_, ..] ->
+      html.details([attribute.class("check disclosure")], [
         html.summary([], summary),
-        html.p([], [html.text(detail)]),
+        ..list.map(detail, fn(line) { html.p([], [html.text(line)]) })
       ])
   }
 }
@@ -323,7 +358,7 @@ pub fn note_with_detail(
 ) -> Element(message) {
   html.div([attribute.class("row note")], [
     html.span([attribute.class("details"), attribute.aria_live("polite")], [
-      html.details([attribute.class("check")], [
+      html.details([attribute.class("disclosure")], [
         html.summary([], [
           html.span([attribute.class("fact")], [html.text(fact)]),
         ]),

@@ -7,13 +7,16 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import homestead/browser
 import homestead/layout.{
-  type Mark, Confirms, Contradicts, Plain, Silent, Warning,
+  type Mark, type Tone, Confirms, Contradicts, Plain, Silent, Warning,
 }
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
 import homestead/setting.{type Appview, type Settings}
-import homestead/tranquil.{type Account, type Problem, type Profile, Profile}
+import homestead/tranquil.{
+  type Account, type Problem, type ProfileRecord, ProfileRecord,
+}
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -25,30 +28,53 @@ pub opaque type Model {
   Model(
     session: Session,
     settings: Settings,
-    record: Remote(Option(Profile)),
-    groups: List(Group),
+    attempt: Int,
+    record: Remote(Option(ProfileRecord)),
+    cards: List(Card),
     announcement: Announcement,
   )
 }
 
-type Group {
-  Group(appview: Appview, standing: Remote(Standing))
+type Card {
+  Card(appview: Appview, standing: Remote(Standing))
 }
 
 pub type Standing {
-  Found(handle: Held, profile: Profile)
+  Found(profile: Profile)
   NotFound
   Deactivated
   TakenDown
 }
 
-pub type Held {
+pub type Profile {
+  Profile(
+    handle: Resolution,
+    name: Option(String),
+    description: Option(String),
+    avatar: Option(String),
+    banner: Option(String),
+  )
+}
+
+pub type Resolution {
   Resolved(handle: Handle)
   Unresolved
 }
 
-pub type Fact {
-  Fact(mark: Mark, state: String, aside: Option(String))
+pub type Field {
+  Name
+  Description
+  Avatar
+  Banner
+}
+
+type Row {
+  Row(verdict: Verdict, aside: Option(String))
+}
+
+type Verdict {
+  Waiting
+  Judged(mark: Mark, fact: String, detail: List(String))
 }
 
 type Announcement {
@@ -58,96 +84,124 @@ type Announcement {
   AnnouncementRefused(problem: Problem)
 }
 
+const announcement_wait_milliseconds = 3000
+
 pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
-  let #(groups, effect) = ask(session, settings)
+  ask(Model(
+    session:,
+    settings:,
+    attempt: 0,
+    record: Loading,
+    cards: [],
+    announcement: NotAnnounced,
+  ))
+}
+
+fn ask(model: Model) -> #(Model, Effect(Message)) {
+  let account = session.account(model.session)
+  let attempt = model.attempt + 1
 
   #(
     Model(
-      session:,
-      settings:,
+      ..model,
+      attempt:,
       record: Loading,
-      groups:,
-      announcement: NotAnnounced,
+      cards: list.map(model.settings.appviews, fn(appview) {
+        Card(appview:, standing: Loading)
+      }),
     ),
-    effect,
-  )
-}
-
-fn ask(
-  session: Session,
-  settings: Settings,
-) -> #(List(Group), Effect(Message)) {
-  let account = session.account(session)
-
-  #(
-    list.map(settings.appviews, fn(appview) {
-      Group(appview:, standing: Loading)
-    }),
     effect.batch([
-      tranquil.load(session, tranquil.profile(account), ServerReturnedProfile),
-      ..list.map(settings.appviews, fn(appview) {
-        rsvp.send(
-          profile_request(appview.address, account),
-          rsvp.expect_any_response(AppviewReturnedProfile(appview, _)),
-        )
-      })
+      tranquil.load(
+        model.session,
+        tranquil.profile_record(account),
+        ServerReturnedProfile(attempt, _),
+      ),
+      ..list.map(model.settings.appviews, ask_appview(model, attempt, _))
     ]),
   )
 }
 
+fn ask_appview(
+  model: Model,
+  attempt: Int,
+  appview: Appview,
+) -> Effect(Message) {
+  rsvp.send(
+    profile_request(appview.address, session.account(model.session)),
+    rsvp.expect_any_response(AppviewReturnedProfile(attempt, appview, _)),
+  )
+}
+
+fn set_standing(
+  cards: List(Card),
+  appview: Appview,
+  standing: Remote(Standing),
+) -> List(Card) {
+  list.map(cards, fn(card) {
+    case card.appview == appview {
+      True -> Card(..card, standing:)
+      False -> card
+    }
+  })
+}
+
 pub opaque type Message {
-  ServerReturnedProfile(result: Result(Profile, Problem))
+  ServerReturnedProfile(attempt: Int, result: Result(ProfileRecord, Problem))
   AppviewReturnedProfile(
+    attempt: Int,
     appview: Appview,
     result: Result(Response(String), rsvp.Error(String)),
   )
   UserClickedCheckAgain
+  UserClickedTryAgain(appview: Appview)
   UserClickedReannounce
   ServerAnnouncedAccount(result: Result(Nil, Problem))
+  BrowserWaitedAfterAnnouncement
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    ServerReturnedProfile(result: Ok(profile)) -> #(
-      Model(..model, record: Loaded(Some(profile))),
+    ServerReturnedProfile(attempt:, ..)
+      | AppviewReturnedProfile(attempt:, ..)
+      if attempt != model.attempt
+    -> #(model, effect.none())
+
+    ServerReturnedProfile(result: Ok(record), ..) -> #(
+      Model(..model, record: Loaded(Some(record))),
       effect.none(),
     )
 
-    ServerReturnedProfile(result: Error(tranquil.Problem(
-      reason: tranquil.Refused("RecordNotFound", _),
+    ServerReturnedProfile(
+      result: Error(tranquil.Problem(
+        reason: tranquil.Refused("RecordNotFound", _),
+        ..,
+      )),
       ..,
-    ))) -> #(Model(..model, record: Loaded(None)), effect.none())
+    ) -> #(Model(..model, record: Loaded(None)), effect.none())
 
-    ServerReturnedProfile(result: Error(problem)) -> #(
+    ServerReturnedProfile(result: Error(problem), ..) -> #(
       Model(..model, record: Failed(problem:)),
       effect.none(),
     )
 
-    AppviewReturnedProfile(appview:, result:) -> #(
+    AppviewReturnedProfile(appview:, result:, ..) -> #(
       Model(
         ..model,
-        groups: list.map(model.groups, fn(group) {
-          case group.appview == appview {
-            True ->
-              Group(
-                ..group,
-                standing: read_profile(
-                  result,
-                  from: tranquil.server_name(appview.address),
-                ),
-              )
-            False -> group
-          }
-        }),
+        cards: set_standing(
+          model.cards,
+          appview,
+          read_profile(result, from: tranquil.server_name(appview.address)),
+        ),
       ),
       effect.none(),
     )
 
-    UserClickedCheckAgain -> {
-      let #(groups, effect) = ask(model.session, model.settings)
+    UserClickedCheckAgain | BrowserWaitedAfterAnnouncement -> ask(model)
 
-      #(Model(..model, record: Loading, groups:), effect)
-    }
+    UserClickedTryAgain(appview:) -> #(
+      Model(..model, cards: set_standing(model.cards, appview, Loading)),
+      ask_appview(model, model.attempt, appview),
+    )
 
     // `activateAccount` is a safe operation for an active account, and triggers
     // `identity`, `sync`, and `account` events to be published by the PDS,
@@ -164,7 +218,10 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
 
     ServerAnnouncedAccount(result: Ok(Nil)) -> #(
       Model(..model, announcement: Announced),
-      effect.none(),
+      browser.after(
+        announcement_wait_milliseconds,
+        BrowserWaitedAfterAnnouncement,
+      ),
     )
 
     ServerAnnouncedAccount(result: Error(problem)) -> #(
@@ -189,8 +246,8 @@ pub fn read_profile(
 ) -> Remote(Standing) {
   case result {
     Ok(response) if response.status == 200 ->
-      case json.parse(response.body, found_decoder()) {
-        Ok(standing) -> Loaded(value: standing)
+      case json.parse(response.body, profile_decoder()) {
+        Ok(profile) -> Loaded(value: Found(profile:))
         Error(_) ->
           Failed(tranquil.Problem(
             service: appview,
@@ -202,12 +259,12 @@ pub fn read_profile(
         Ok(Refusal(error: "AccountDeactivated", ..)) ->
           Loaded(value: Deactivated)
         Ok(Refusal(error: "AccountTakedown", ..)) -> Loaded(value: TakenDown)
-        Ok(Refusal(error: "InvalidRequest", message: "Profile not found")) ->
+        Ok(Refusal(error: "InvalidRequest", message: Some("Profile not found"))) ->
           Loaded(value: NotFound)
         Ok(Refusal(error:, message:)) ->
           Failed(tranquil.Problem(
             service: appview,
-            reason: tranquil.Refused(error, message),
+            reason: tranquil.Refused(error, option.unwrap(message, "")),
           ))
         Error(_) ->
           Failed(tranquil.Problem(
@@ -219,139 +276,86 @@ pub fn read_profile(
   }
 }
 
-fn found_decoder() -> Decoder(Standing) {
-  use held <- decode.field("handle", held_decoder())
-  use name <- text("displayName")
-  use description <- text("description")
-  use avatar <- text("avatar")
-  use banner <- text("banner")
+fn profile_decoder() -> Decoder(Profile) {
+  use resolution <- decode.field("handle", resolution_decoder())
+  use name <- non_empty_text("displayName")
+  use description <- non_empty_text("description")
+  use avatar <- non_empty_text("avatar")
+  use banner <- non_empty_text("banner")
 
-  decode.success(Found(
-    handle: held,
-    profile: Profile(name:, description:, avatar:, banner:),
+  decode.success(Profile(
+    handle: resolution,
+    name:,
+    description:,
+    avatar:,
+    banner:,
   ))
 }
 
-fn held_decoder() -> Decoder(Held) {
+fn resolution_decoder() -> Decoder(Resolution) {
   use name <- decode.then(decode.string)
 
   case name, handle.from_string(name) {
     "handle.invalid", _ -> decode.success(Unresolved)
-    _, Ok(held) -> decode.success(Resolved(handle: held))
+    _, Ok(resolved) -> decode.success(Resolved(handle: resolved))
     _, Error(Nil) -> decode.failure(Unresolved, "Handle")
   }
 }
 
-fn text(
+fn non_empty_text(
   field: String,
   next: fn(Option(String)) -> Decoder(final),
 ) -> Decoder(final) {
-  use text <- decode.optional_field(field, "", decode.string)
+  use value <- decode.optional_field(field, "", decode.string)
 
-  next(case text {
+  next(case value {
     "" -> None
-    text -> Some(text)
+    value -> Some(value)
   })
 }
 
 type Refusal {
-  Refusal(error: String, message: String)
+  Refusal(error: String, message: Option(String))
 }
 
 fn refusal_decoder() -> Decoder(Refusal) {
   use error <- decode.field("error", decode.string)
-  use message <- decode.optional_field("message", "", decode.string)
+  use message <- non_empty_text("message")
 
   decode.success(Refusal(error:, message:))
 }
 
-pub fn account_fact(standing: Standing, is_active: Bool) -> Fact {
-  case standing, is_active {
-    Found(_, _), True -> Fact(mark: Confirms, state: "exists", aside: None)
-    Found(_, _), False ->
-      Fact(mark: Contradicts, state: "still active", aside: None)
-    NotFound, _ -> Fact(mark: Contradicts, state: "not found", aside: None)
-    Deactivated, True ->
-      Fact(mark: Contradicts, state: "deactivated", aside: None)
-    Deactivated, False ->
-      Fact(mark: Confirms, state: "deactivated", aside: None)
-    TakenDown, _ -> Fact(mark: Contradicts, state: "taken down", aside: None)
-  }
+pub fn stale_fields(
+  record: Option(ProfileRecord),
+  profile: Profile,
+) -> List(Field) {
+  let own = or_empty(record)
+
+  list.filter([Name, Description, Avatar, Banner], fn(field) {
+    case field {
+      Name -> profile.name != own.name
+      Description -> profile.description != own.description
+      Avatar -> !is_same_image(record: own.avatar, shown: profile.avatar)
+      Banner -> !is_same_image(record: own.banner, shown: profile.banner)
+    }
+  })
 }
 
-pub fn handle_fact(held: Held, own: Handle) -> Fact {
-  case held {
-    Resolved(handle: held) if held == own ->
-      Fact(mark: Confirms, state: "up to date", aside: None)
-    Resolved(handle: held) ->
-      Fact(
-        mark: Contradicts,
-        state: "out of date",
-        aside: Some("@" <> handle.to_string(held)),
-      )
-    Unresolved ->
-      Fact(
-        mark: Contradicts,
-        state: "not resolved",
-        aside: Some("handle.invalid"),
-      )
-  }
+fn or_empty(record: Option(ProfileRecord)) -> ProfileRecord {
+  option.unwrap(
+    record,
+    ProfileRecord(name: None, description: None, avatar: None, banner: None),
+  )
 }
 
-pub fn profile_fact(shown: Profile, record: Option(Profile)) -> Fact {
-  let own =
-    option.unwrap(
-      record,
-      Profile(name: None, description: None, avatar: None, banner: None),
-    )
-  let stale =
-    [
-      Field(name: "name", is_current: shown.name == own.name),
-      Field(
-        name: "description",
-        is_current: shown.description == own.description,
-      ),
-      Field(name: "avatar", is_current: is_same_image(own.avatar, shown.avatar)),
-      Field(name: "banner", is_current: is_same_image(own.banner, shown.banner)),
-    ]
-    |> list.filter(fn(field) { !field.is_current })
-    |> list.map(fn(field) { field.name })
-
-  case stale, record {
-    [], None -> Fact(mark: Silent, state: "no profile record", aside: None)
-    [], Some(_) -> Fact(mark: Confirms, state: "up to date", aside: None)
-    [_, ..], _ ->
-      Fact(
-        mark: Contradicts,
-        state: "out of date",
-        aside: Some(string.join(stale, ", ")),
-      )
-  }
-}
-
-type Field {
-  Field(name: String, is_current: Bool)
-}
-
-fn is_same_image(record: Option(String), shown: Option(String)) -> Bool {
-  case record, shown {
+fn is_same_image(
+  record image: Option(String),
+  shown address: Option(String),
+) -> Bool {
+  case image, address {
     None, None -> True
     Some(image), Some(address) -> string.contains(address, image)
     Some(_), None | None, Some(_) -> False
-  }
-}
-
-fn when_found(
-  standing: Remote(Standing),
-  judge: fn(Held, Profile) -> Remote(Fact),
-) -> Remote(Fact) {
-  case standing {
-    Loading -> Loading
-    Loaded(value: Found(handle:, profile:)) -> judge(handle, profile)
-    Loaded(value: NotFound)
-    | Loaded(value: Deactivated)
-    | Loaded(value: TakenDown)
-    | Failed(_) -> Loaded(Fact(mark: Silent, state: "not checked", aside: None))
   }
 }
 
@@ -360,6 +364,14 @@ fn describe_failure(problem: Problem) -> String {
     tranquil.Unreachable -> "couldn't reach " <> problem.service
     tranquil.Refused(error:, ..) -> problem.service <> " answered " <> error
     tranquil.NotUnderstood -> "couldn't read " <> problem.service <> "'s answer"
+  }
+}
+
+fn describe_failure_on_card(problem: Problem) -> String {
+  case problem.reason {
+    tranquil.Unreachable -> "no answer"
+    tranquil.Refused(error:, ..) -> "answered " <> error
+    tranquil.NotUnderstood -> "answer not understood"
   }
 }
 
@@ -375,7 +387,7 @@ fn describe_refusal(problem: Problem) -> String {
 pub fn view(model: Model, account: Remote(Account)) -> Element(Message) {
   let is_asking =
     model.record == Loading
-    || list.any(model.groups, fn(group) { group.standing == Loading })
+    || list.any(model.cards, fn(card) { card.standing == Loading })
 
   layout.page(
     list.flatten([
@@ -395,7 +407,7 @@ pub fn view(model: Model, account: Remote(Account)) -> Element(Message) {
           [],
         ),
       ],
-      list.map(model.groups, view_group(_, model.record, account)),
+      list.map(model.cards, view_card(_, model.record, account)),
       case account {
         Loaded(value: tranquil.Account(is_active: True, ..)) -> [
           view_announcement(model.announcement, session.server(model.session)),
@@ -408,76 +420,267 @@ pub fn view(model: Model, account: Remote(Account)) -> Element(Message) {
   )
 }
 
-fn view_group(
-  group: Group,
-  record: Remote(Option(Profile)),
+fn view_card(
+  card: Card,
+  record: Remote(Option(ProfileRecord)),
   account: Remote(Account),
 ) -> Element(Message) {
-  let host = tranquil.server_name(group.appview.address)
-  let #(prompt, aside) = case group.appview.name {
-    Some(name) -> #(name, [layout.dim(host)])
-    None -> #(host, [])
+  let host = tranquil.server_name(card.appview.address)
+  let prompt = option.unwrap(card.appview.name, host)
+  let retry = case card.standing {
+    Failed(_) -> [
+      html.button(
+        [
+          attribute.class("action"),
+          event.on_click(UserClickedTryAgain(card.appview)),
+        ],
+        [html.text("Try again")],
+      ),
+    ]
+    Loading | Loaded(_) -> []
   }
+  let address = case card.appview.name {
+    Some(_) -> [layout.dim(host)]
+    None -> []
+  }
+  let presence = judge_presence(card.standing, record, account, host)
 
-  layout.section_with_actions(prompt, aside, [
-    layout.block([
-      view_fact("Account", {
-        use standing <- remote.then(group.standing)
-        use account <- remote.map(account)
-
-        account_fact(standing, account.is_active)
-      }),
-      view_fact("Handle", {
-        use held, _ <- when_found(group.standing)
-        use account <- remote.map(account)
-
-        handle_fact(held, account.handle)
-      }),
-      view_fact("Profile", {
-        use _, shown <- when_found(group.standing)
-        use record <- remote.map(record)
-
-        profile_fact(shown, record)
-      }),
-    ]),
-  ])
+  layout.section_with_state(
+    prompt:,
+    tone: tone(presence),
+    state: view_verdict(presence),
+    aside: list.append(retry, address),
+    content: [
+      layout.block([
+        view_row("Handle", judge_handle(card.standing, account, host)),
+        view_row("Profile", judge_profile(card.standing, record)),
+      ]),
+    ],
+  )
 }
 
-fn view_fact(name: String, fact: Remote(Fact)) -> Element(Message) {
-  case fact {
-    Loading ->
-      layout.row(tone: Plain, name:, details: [layout.pending()], actions: [])
-
+fn judge_presence(
+  standing: Remote(Standing),
+  record: Remote(Option(ProfileRecord)),
+  account: Remote(Account),
+  host: String,
+) -> Verdict {
+  case standing {
+    Loading -> Waiting
     Failed(problem:) ->
-      layout.row(
-        tone: Plain,
-        name:,
-        details: [
-          layout.check(
-            mark: Silent,
-            fact: describe_failure(problem),
-            detail: None,
-          ),
-        ],
-        actions: [],
-      )
-
-    Loaded(value: Fact(mark:, state:, aside:)) ->
-      layout.row(
-        tone: case mark {
-          Contradicts -> Warning
-          Confirms | Silent -> Plain
-        },
-        name:,
-        details: [
-          layout.check(mark:, fact: state, detail: None),
-          ..case aside {
-            Some(aside) -> [html.text(" \u{00B7} "), layout.dim(aside)]
-            None -> []
+      Judged(mark: Silent, fact: describe_failure_on_card(problem), detail: [])
+    Loaded(value: answer) ->
+      case account {
+        Loading -> Waiting
+        Failed(problem:) ->
+          Judged(mark: Silent, fact: describe_failure(problem), detail: [])
+        Loaded(value: own) ->
+          case answer, own.is_active {
+            Found(_), True -> Judged(mark: Confirms, fact: "exists", detail: [])
+            Found(_), False ->
+              Judged(mark: Contradicts, fact: "still active", detail: [])
+            NotFound, _ -> judge_absence(record, host)
+            Deactivated, True ->
+              Judged(mark: Contradicts, fact: "deactivated", detail: [
+                host <> " answered AccountDeactivated.",
+              ])
+            Deactivated, False ->
+              Judged(mark: Confirms, fact: "deactivated", detail: [
+                host <> " answered AccountDeactivated.",
+              ])
+            TakenDown, _ ->
+              Judged(mark: Contradicts, fact: "taken down", detail: [
+                host <> " answered AccountTakedown.",
+              ])
           }
-        ],
-        actions: [],
+      }
+  }
+}
+
+fn judge_absence(
+  record: Remote(Option(ProfileRecord)),
+  host: String,
+) -> Verdict {
+  let detail = [host <> " answered \"Profile not found\"."]
+
+  case record {
+    Loading -> Waiting
+    Loaded(value: Some(_)) ->
+      Judged(mark: Contradicts, fact: "not found", detail:)
+    Loaded(value: None) | Failed(_) ->
+      Judged(mark: Silent, fact: "not found", detail:)
+  }
+}
+
+fn judge_handle(
+  standing: Remote(Standing),
+  account: Remote(Account),
+  host: String,
+) -> Row {
+  use profile <- when_found(standing)
+  use own <- when_loaded(account)
+
+  case profile.handle {
+    Resolved(handle: shown) if shown == own.handle ->
+      Row(
+        verdict: Judged(mark: Confirms, fact: "up to date", detail: []),
+        aside: None,
       )
+    Resolved(handle: shown) ->
+      Row(
+        verdict: Judged(mark: Contradicts, fact: "out of date", detail: [
+          host <> " has @" <> handle.to_string(shown) <> ".",
+          "This server has @" <> handle.to_string(own.handle) <> ".",
+        ]),
+        aside: Some("@" <> handle.to_string(shown)),
+      )
+    Unresolved ->
+      Row(
+        verdict: Judged(mark: Contradicts, fact: "not resolved", detail: [
+          host <> " answers handle.invalid when it can't resolve the handle.",
+        ]),
+        aside: Some("handle.invalid"),
+      )
+  }
+}
+
+fn judge_profile(
+  standing: Remote(Standing),
+  record: Remote(Option(ProfileRecord)),
+) -> Row {
+  use profile <- when_found(standing)
+  use own <- when_loaded(record)
+
+  case stale_fields(own, profile), own {
+    [], None ->
+      Row(
+        verdict: Judged(mark: Silent, fact: "no profile record", detail: []),
+        aside: None,
+      )
+    [], Some(_) ->
+      Row(
+        verdict: Judged(mark: Confirms, fact: "up to date", detail: []),
+        aside: None,
+      )
+    [_, ..] as stale, _ ->
+      Row(
+        verdict: Judged(
+          mark: Contradicts,
+          fact: "out of date",
+          detail: list.append(
+            list.map(stale, describe_stale(_, or_empty(own), profile)),
+            [
+              "Re-announce doesn't send the profile. A change to the profile does.",
+            ],
+          ),
+        ),
+        aside: Some(stale |> list.map(field_name) |> string.join(", ")),
+      )
+  }
+}
+
+fn when_found(standing: Remote(Standing), judge: fn(Profile) -> Row) -> Row {
+  case standing {
+    Loading -> Row(verdict: Waiting, aside: None)
+    Loaded(value: Found(profile:)) -> judge(profile)
+    Loaded(value: NotFound)
+    | Loaded(value: Deactivated)
+    | Loaded(value: TakenDown)
+    | Failed(_) ->
+      Row(
+        verdict: Judged(mark: Silent, fact: "not checked", detail: []),
+        aside: None,
+      )
+  }
+}
+
+fn when_loaded(remote: Remote(value), judge: fn(value) -> Row) -> Row {
+  case remote {
+    Loading -> Row(verdict: Waiting, aside: None)
+    Failed(problem:) ->
+      Row(
+        verdict: Judged(
+          mark: Silent,
+          fact: describe_failure(problem),
+          detail: [],
+        ),
+        aside: None,
+      )
+    Loaded(value:) -> judge(value)
+  }
+}
+
+fn field_name(field: Field) -> String {
+  case field {
+    Name -> "name"
+    Description -> "description"
+    Avatar -> "avatar"
+    Banner -> "banner"
+  }
+}
+
+fn describe_stale(
+  field: Field,
+  own: ProfileRecord,
+  profile: Profile,
+) -> String {
+  field_name(field)
+  <> ": "
+  <> case field {
+    Name -> describe_texts(shown: profile.name, own: own.name)
+    Description ->
+      describe_texts(shown: profile.description, own: own.description)
+    Avatar -> describe_images(shown: profile.avatar, own: own.avatar)
+    Banner -> describe_images(shown: profile.banner, own: own.banner)
+  }
+}
+
+fn describe_texts(
+  shown shown: Option(String),
+  own own: Option(String),
+) -> String {
+  "has " <> quote(shown) <> ", this server has " <> quote(own)
+}
+
+fn quote(text: Option(String)) -> String {
+  case text {
+    Some(text) -> "\"" <> text <> "\""
+    None -> "none"
+  }
+}
+
+fn describe_images(
+  shown shown: Option(String),
+  own own: Option(String),
+) -> String {
+  case shown, own {
+    None, Some(_) -> "has none, this server has one"
+    Some(_), None -> "has one, this server has none"
+    Some(_), Some(_) -> "has another image"
+    None, None -> "has none, this server has none"
+  }
+}
+
+fn view_row(name: String, row: Row) -> Element(Message) {
+  layout.row_with_aside(
+    tone: tone(row.verdict),
+    name:,
+    details: [view_verdict(row.verdict)],
+    aside: row.aside,
+  )
+}
+
+fn view_verdict(verdict: Verdict) -> Element(Message) {
+  case verdict {
+    Waiting -> layout.pending()
+    Judged(mark:, fact:, detail:) -> layout.check(mark:, fact:, detail:)
+  }
+}
+
+fn tone(verdict: Verdict) -> Tone {
+  case verdict {
+    Judged(mark: Contradicts, ..) -> Warning
+    Judged(mark: Confirms, ..) | Judged(mark: Silent, ..) | Waiting -> Plain
   }
 }
 

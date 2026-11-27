@@ -268,6 +268,23 @@ h3 {
     color: var(--accent);
 }
 
+.prompt > .state {
+    display: inline-block;
+    vertical-align: top;
+    margin-left: var(--space-2);
+    font-family: var(--font-text);
+    font-size: 17px;
+    color: var(--text);
+}
+
+.prompt > .state.warning {
+    color: var(--attention);
+}
+
+.prompt > .state > .disclosure[open] {
+    padding-top: 0;
+}
+
 .prompt + h1 {
     margin-top: var(--space-1);
 }
@@ -374,6 +391,12 @@ h3 {
     display: none;
 }
 
+.row > .aside {
+    grid-column: 3;
+    justify-self: end;
+    color: var(--text-dim);
+}
+
 .row a {
     display: flex;
     align-items: center;
@@ -401,20 +424,20 @@ h3 {
     margin-top: var(--space-3);
 }
 
-.check > summary {
+.disclosure > summary {
     cursor: pointer;
     list-style: none;
 }
 
-.check[open] {
+.disclosure[open] {
     padding: var(--space-1) 0;
 }
 
-.check > summary::-webkit-details-marker {
+.disclosure > summary::-webkit-details-marker {
     display: none;
 }
 
-.check > summary > .fact {
+.disclosure > summary > .fact {
     text-decoration: underline dotted var(--text-dim);
     text-underline-offset: 4px;
 }
@@ -425,7 +448,7 @@ h3 {
     width: 1.5em;
 }
 
-.check > p {
+.disclosure > p {
     margin: 4px 0 0;
     color: var(--text-dim);
     overflow-wrap: anywhere;
@@ -1595,6 +1618,20 @@ input:disabled {
 
     .row.note:has(> .actions:not(:empty)) > .details {
         grid-column: 1;
+    }
+
+    .row > .aside {
+        display: none;
+    }
+
+    .heading > .prompt:has(> .state) {
+        flex-basis: 100%;
+    }
+
+    .heading > .prompt:has(> .state) + .actions {
+        align-items: center;
+        min-height: var(--control);
+        margin-left: 0;
     }
 
     .row > :only-child .action {

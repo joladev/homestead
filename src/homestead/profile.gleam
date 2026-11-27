@@ -949,7 +949,7 @@ fn view_check(
       Confirms | Silent -> layout.Plain
     },
     name:,
-    details: [layout.check(mark:, fact:, detail:)],
+    details: [layout.check(mark:, fact:, detail: option.values([detail]))],
     actions: [],
   )
 }
