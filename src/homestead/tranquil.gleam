@@ -656,6 +656,57 @@ pub fn contact_preferences() -> Query(ContactPreferences) {
   })
 }
 
+pub type Profile {
+  Profile(
+    name: Option(String),
+    description: Option(String),
+    avatar: Option(String),
+    banner: Option(String),
+  )
+}
+
+pub fn profile(account: Did) -> Query(Profile) {
+  let image = fn(field: String) {
+    decode.one_of(
+      decode.at(["value", field, "ref", "$link"], decode.string)
+        |> decode.map(Some),
+      [
+        decode.at(["value", field, "cid"], decode.string) |> decode.map(Some),
+        decode.success(None),
+      ],
+    )
+  }
+  let text = fn(field: String) {
+    use text <- decode.map(decode.optionally_at(
+      ["value", field],
+      "",
+      decode.string,
+    ))
+
+    case text {
+      "" -> None
+      text -> Some(text)
+    }
+  }
+
+  query(
+    "com.atproto.repo.getRecord",
+    [
+      #("repo", did.to_string(account)),
+      #("collection", "app.bsky.actor.profile"),
+      #("rkey", "self"),
+    ],
+    {
+      use name <- decode.then(text("displayName"))
+      use description <- decode.then(text("description"))
+      use avatar <- decode.then(image("avatar"))
+      use banner <- decode.then(image("banner"))
+
+      decode.success(Profile(name:, description:, avatar:, banner:))
+    },
+  )
+}
+
 pub fn display_name(account: Did) -> Query(Option(String)) {
   let account = did.to_string(account)
 

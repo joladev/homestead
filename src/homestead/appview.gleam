@@ -6,13 +6,14 @@ import gleam/http/response.{type Response}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import homestead/layout.{
   type Mark, Confirms, Contradicts, Plain, Silent, Warning,
 }
 import homestead/remote.{type Remote, Failed, Loaded, Loading}
 import homestead/session.{type Session}
-import homestead/setting.{type Settings}
-import homestead/tranquil.{type Account, type Problem}
+import homestead/setting.{type Appview, type Settings}
+import homestead/tranquil.{type Account, type Problem, type Profile, Profile}
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -24,25 +25,30 @@ pub opaque type Model {
   Model(
     session: Session,
     settings: Settings,
-    appviews: List(Appview),
+    record: Remote(Option(Profile)),
+    groups: List(Group),
     announcement: Announcement,
   )
 }
 
-type Appview {
-  Appview(address: Request(String), standing: Remote(Standing))
+type Group {
+  Group(appview: Appview, standing: Remote(Standing))
 }
 
 pub type Standing {
-  Known(handle: Handle)
-  HandleUnresolved
+  Found(handle: Held, profile: Profile)
   NotFound
   Deactivated
   TakenDown
 }
 
-pub type Verdict {
-  Verdict(mark: Mark, fact: String, detail: Option(String))
+pub type Held {
+  Resolved(handle: Handle)
+  Unresolved
+}
+
+pub type Fact {
+  Fact(mark: Mark, state: String, aside: Option(String))
 }
 
 type Announcement {
@@ -53,35 +59,46 @@ type Announcement {
 }
 
 pub fn init(session: Session, settings: Settings) -> #(Model, Effect(Message)) {
-  let #(appviews, effect) = check(session, settings)
+  let #(groups, effect) = ask(session, settings)
 
-  #(Model(session:, settings:, appviews:, announcement: NotAnnounced), effect)
+  #(
+    Model(
+      session:,
+      settings:,
+      record: Loading,
+      groups:,
+      announcement: NotAnnounced,
+    ),
+    effect,
+  )
 }
 
-fn check(
+fn ask(
   session: Session,
   settings: Settings,
-) -> #(List(Appview), Effect(Message)) {
+) -> #(List(Group), Effect(Message)) {
   let account = session.account(session)
 
   #(
-    list.map(settings.appviews, fn(address) {
-      Appview(address:, standing: Loading)
+    list.map(settings.appviews, fn(appview) {
+      Group(appview:, standing: Loading)
     }),
-    effect.batch(
-      list.map(settings.appviews, fn(address) {
+    effect.batch([
+      tranquil.load(session, tranquil.profile(account), ServerReturnedProfile),
+      ..list.map(settings.appviews, fn(appview) {
         rsvp.send(
-          profile_request(address, account),
-          rsvp.expect_any_response(AppviewReturnedProfile(address, _)),
+          profile_request(appview.address, account),
+          rsvp.expect_any_response(AppviewReturnedProfile(appview, _)),
         )
-      }),
-    ),
+      })
+    ]),
   )
 }
 
 pub opaque type Message {
+  ServerReturnedProfile(result: Result(Profile, Problem))
   AppviewReturnedProfile(
-    appview: Request(String),
+    appview: Appview,
     result: Result(Response(String), rsvp.Error(String)),
   )
   UserClickedCheckAgain
@@ -91,20 +108,35 @@ pub opaque type Message {
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    AppviewReturnedProfile(appview: address, result:) -> #(
+    ServerReturnedProfile(result: Ok(profile)) -> #(
+      Model(..model, record: Loaded(Some(profile))),
+      effect.none(),
+    )
+
+    ServerReturnedProfile(result: Error(tranquil.Problem(
+      reason: tranquil.Refused("RecordNotFound", _),
+      ..,
+    ))) -> #(Model(..model, record: Loaded(None)), effect.none())
+
+    ServerReturnedProfile(result: Error(problem)) -> #(
+      Model(..model, record: Failed(problem:)),
+      effect.none(),
+    )
+
+    AppviewReturnedProfile(appview:, result:) -> #(
       Model(
         ..model,
-        appviews: list.map(model.appviews, fn(appview) {
-          case appview.address == address {
+        groups: list.map(model.groups, fn(group) {
+          case group.appview == appview {
             True ->
-              Appview(
-                ..appview,
+              Group(
+                ..group,
                 standing: read_profile(
                   result,
-                  from: tranquil.server_name(address),
+                  from: tranquil.server_name(appview.address),
                 ),
               )
-            False -> appview
+            False -> group
           }
         }),
       ),
@@ -112,9 +144,9 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
 
     UserClickedCheckAgain -> {
-      let #(appviews, effect) = check(model.session, model.settings)
+      let #(groups, effect) = ask(model.session, model.settings)
 
-      #(Model(..model, appviews:), effect)
+      #(Model(..model, record: Loading, groups:), effect)
     }
 
     // `activateAccount` is a safe operation for an active account, and triggers
@@ -157,7 +189,7 @@ pub fn read_profile(
 ) -> Remote(Standing) {
   case result {
     Ok(response) if response.status == 200 ->
-      case json.parse(response.body, standing_decoder()) {
+      case json.parse(response.body, found_decoder()) {
         Ok(standing) -> Loaded(value: standing)
         Error(_) ->
           Failed(tranquil.Problem(
@@ -187,14 +219,39 @@ pub fn read_profile(
   }
 }
 
-fn standing_decoder() -> Decoder(Standing) {
-  use name <- decode.field("handle", decode.string)
+fn found_decoder() -> Decoder(Standing) {
+  use held <- decode.field("handle", held_decoder())
+  use name <- text("displayName")
+  use description <- text("description")
+  use avatar <- text("avatar")
+  use banner <- text("banner")
+
+  decode.success(Found(
+    handle: held,
+    profile: Profile(name:, description:, avatar:, banner:),
+  ))
+}
+
+fn held_decoder() -> Decoder(Held) {
+  use name <- decode.then(decode.string)
 
   case name, handle.from_string(name) {
-    "handle.invalid", _ -> decode.success(HandleUnresolved)
-    _, Ok(known) -> decode.success(Known(handle: known))
-    _, Error(Nil) -> decode.failure(HandleUnresolved, "Handle")
+    "handle.invalid", _ -> decode.success(Unresolved)
+    _, Ok(held) -> decode.success(Resolved(handle: held))
+    _, Error(Nil) -> decode.failure(Unresolved, "Handle")
   }
+}
+
+fn text(
+  field: String,
+  next: fn(Option(String)) -> Decoder(final),
+) -> Decoder(final) {
+  use text <- decode.optional_field(field, "", decode.string)
+
+  next(case text {
+    "" -> None
+    text -> Some(text)
+  })
 }
 
 type Refusal {
@@ -208,68 +265,93 @@ fn refusal_decoder() -> Decoder(Refusal) {
   decode.success(Refusal(error:, message:))
 }
 
-pub fn verdict(
-  standing: Standing,
-  account: Account,
-  from appview: String,
-) -> Verdict {
-  case standing, account.is_active {
-    Known(handle: known), True if known == account.handle ->
-      Verdict(
-        mark: Confirms,
-        fact: "has this account as @" <> handle.to_string(known),
-        detail: None,
-      )
-    Known(handle: known), True ->
-      Verdict(
-        mark: Contradicts,
-        fact: "has another handle: @" <> handle.to_string(known),
-        detail: None,
-      )
-    Known(_), False ->
-      Verdict(
-        mark: Contradicts,
-        fact: "shows the account as active",
-        detail: None,
-      )
-    HandleUnresolved, True ->
-      Verdict(
-        mark: Contradicts,
-        fact: "has the handle as invalid",
-        detail: Some(
-          appview <> " answers handle.invalid when it can't resolve the handle.",
-        ),
-      )
-    HandleUnresolved, False ->
-      Verdict(
-        mark: Contradicts,
-        fact: "shows the account as active",
-        detail: None,
-      )
-    NotFound, True | NotFound, False ->
-      Verdict(
-        mark: Contradicts,
-        fact: "account not found",
-        detail: Some(appview <> " answered \"Profile not found\"."),
-      )
+pub fn account_fact(standing: Standing, is_active: Bool) -> Fact {
+  case standing, is_active {
+    Found(_, _), True -> Fact(mark: Confirms, state: "exists", aside: None)
+    Found(_, _), False ->
+      Fact(mark: Contradicts, state: "still active", aside: None)
+    NotFound, _ -> Fact(mark: Contradicts, state: "not found", aside: None)
     Deactivated, True ->
-      Verdict(
-        mark: Contradicts,
-        fact: "shows the account as deactivated",
-        detail: Some(appview <> " answered AccountDeactivated."),
-      )
+      Fact(mark: Contradicts, state: "deactivated", aside: None)
     Deactivated, False ->
-      Verdict(
-        mark: Confirms,
-        fact: "shows the account as deactivated",
-        detail: Some(appview <> " answered AccountDeactivated."),
-      )
-    TakenDown, True | TakenDown, False ->
-      Verdict(
+      Fact(mark: Confirms, state: "deactivated", aside: None)
+    TakenDown, _ -> Fact(mark: Contradicts, state: "taken down", aside: None)
+  }
+}
+
+pub fn handle_fact(held: Held, own: Handle) -> Fact {
+  case held {
+    Resolved(handle: held) if held == own ->
+      Fact(mark: Confirms, state: "up to date", aside: None)
+    Resolved(handle: held) ->
+      Fact(
         mark: Contradicts,
-        fact: "shows the account as taken down",
-        detail: Some(appview <> " answered AccountTakedown."),
+        state: "out of date",
+        aside: Some("@" <> handle.to_string(held)),
       )
+    Unresolved ->
+      Fact(
+        mark: Contradicts,
+        state: "not resolved",
+        aside: Some("handle.invalid"),
+      )
+  }
+}
+
+pub fn profile_fact(shown: Profile, record: Option(Profile)) -> Fact {
+  let own =
+    option.unwrap(
+      record,
+      Profile(name: None, description: None, avatar: None, banner: None),
+    )
+  let stale =
+    [
+      Field(name: "name", is_current: shown.name == own.name),
+      Field(
+        name: "description",
+        is_current: shown.description == own.description,
+      ),
+      Field(name: "avatar", is_current: is_same_image(own.avatar, shown.avatar)),
+      Field(name: "banner", is_current: is_same_image(own.banner, shown.banner)),
+    ]
+    |> list.filter(fn(field) { !field.is_current })
+    |> list.map(fn(field) { field.name })
+
+  case stale, record {
+    [], None -> Fact(mark: Silent, state: "no profile record", aside: None)
+    [], Some(_) -> Fact(mark: Confirms, state: "up to date", aside: None)
+    [_, ..], _ ->
+      Fact(
+        mark: Contradicts,
+        state: "out of date",
+        aside: Some(string.join(stale, ", ")),
+      )
+  }
+}
+
+type Field {
+  Field(name: String, is_current: Bool)
+}
+
+fn is_same_image(record: Option(String), shown: Option(String)) -> Bool {
+  case record, shown {
+    None, None -> True
+    Some(image), Some(address) -> string.contains(address, image)
+    Some(_), None | None, Some(_) -> False
+  }
+}
+
+fn when_found(
+  standing: Remote(Standing),
+  judge: fn(Held, Profile) -> Remote(Fact),
+) -> Remote(Fact) {
+  case standing {
+    Loading -> Loading
+    Loaded(value: Found(handle:, profile:)) -> judge(handle, profile)
+    Loaded(value: NotFound)
+    | Loaded(value: Deactivated)
+    | Loaded(value: TakenDown)
+    | Failed(_) -> Loaded(Fact(mark: Silent, state: "not checked", aside: None))
   }
 }
 
@@ -291,50 +373,78 @@ fn describe_refusal(problem: Problem) -> String {
 }
 
 pub fn view(model: Model, account: Remote(Account)) -> Element(Message) {
-  layout.page([
-    layout.title_section_with_actions(
-      "appviews",
+  let is_asking =
+    model.record == Loading
+    || list.any(model.groups, fn(group) { group.standing == Loading })
+
+  layout.page(
+    list.flatten([
       [
-        html.button(
+        layout.title_section_with_actions(
+          "appviews",
           [
-            attribute.class("action"),
-            attribute.disabled(
-              list.any(model.appviews, fn(appview) {
-                appview.standing == Loading
-              }),
+            html.button(
+              [
+                attribute.class("action"),
+                attribute.disabled(is_asking),
+                event.on_click(UserClickedCheckAgain),
+              ],
+              [html.text("Check again")],
             ),
-            event.on_click(UserClickedCheckAgain),
           ],
-          [html.text("Check again")],
+          [],
         ),
       ],
-      [
-        layout.block(list.map(model.appviews, view_appview(_, account))),
-        case account {
-          Loaded(value: tranquil.Account(is_active: True, ..)) ->
-            view_announcement(model.announcement, session.server(model.session))
-          Loaded(value: tranquil.Account(is_active: False, ..))
-          | Loading
-          | Failed(_) -> element.none()
-        },
-      ],
-    ),
+      list.map(model.groups, view_group(_, model.record, account)),
+      case account {
+        Loaded(value: tranquil.Account(is_active: True, ..)) -> [
+          view_announcement(model.announcement, session.server(model.session)),
+        ]
+        Loaded(value: tranquil.Account(is_active: False, ..))
+        | Loading
+        | Failed(_) -> []
+      },
+    ]),
+  )
+}
+
+fn view_group(
+  group: Group,
+  record: Remote(Option(Profile)),
+  account: Remote(Account),
+) -> Element(Message) {
+  let host = tranquil.server_name(group.appview.address)
+  let #(prompt, aside) = case group.appview.name {
+    Some(name) -> #(name, [layout.dim(host)])
+    None -> #(host, [])
+  }
+
+  layout.section_with_actions(prompt, aside, [
+    layout.block([
+      view_fact("Account", {
+        use standing <- remote.then(group.standing)
+        use account <- remote.map(account)
+
+        account_fact(standing, account.is_active)
+      }),
+      view_fact("Handle", {
+        use held, _ <- when_found(group.standing)
+        use account <- remote.map(account)
+
+        handle_fact(held, account.handle)
+      }),
+      view_fact("Profile", {
+        use _, shown <- when_found(group.standing)
+        use record <- remote.map(record)
+
+        profile_fact(shown, record)
+      }),
+    ]),
   ])
 }
 
-fn view_appview(
-  appview: Appview,
-  account: Remote(Account),
-) -> Element(Message) {
-  let name = tranquil.server_name(appview.address)
-  let verdict = {
-    use standing <- remote.then(appview.standing)
-    use account <- remote.map(account)
-
-    verdict(standing, account, from: name)
-  }
-
-  case verdict {
+fn view_fact(name: String, fact: Remote(Fact)) -> Element(Message) {
+  case fact {
     Loading ->
       layout.row(tone: Plain, name:, details: [layout.pending()], actions: [])
 
@@ -352,14 +462,20 @@ fn view_appview(
         actions: [],
       )
 
-    Loaded(value: Verdict(mark:, fact:, detail:)) ->
+    Loaded(value: Fact(mark:, state:, aside:)) ->
       layout.row(
         tone: case mark {
           Contradicts -> Warning
           Confirms | Silent -> Plain
         },
         name:,
-        details: [layout.check(mark:, fact:, detail:)],
+        details: [
+          layout.check(mark:, fact: state, detail: None),
+          ..case aside {
+            Some(aside) -> [html.text(" \u{00B7} "), layout.dim(aside)]
+            None -> []
+          }
+        ],
         actions: [],
       )
   }
@@ -377,22 +493,24 @@ fn view_announcement(
     ])
   }
 
-  layout.block_apart([
-    layout.note_with_detail(
-      fact:,
-      detail: server
-        <> " emits #account, #identity and #sync events for this account.",
-      actions: [
-        html.button(
-          [
-            attribute.class("action"),
-            attribute.disabled(announcement == Announcing),
-            event.on_click(UserClickedReannounce),
-          ],
-          [html.text("Re-announce")],
-        ),
-      ],
-    ),
-    ..refusal
+  html.section([], [
+    layout.block([
+      layout.note_with_detail(
+        fact:,
+        detail: server
+          <> " emits #account, #identity and #sync events for this account.",
+        actions: [
+          html.button(
+            [
+              attribute.class("action"),
+              attribute.disabled(announcement == Announcing),
+              event.on_click(UserClickedReannounce),
+            ],
+            [html.text("Re-announce")],
+          ),
+        ],
+      ),
+      ..refusal
+    ]),
   ])
 }

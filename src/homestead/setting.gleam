@@ -4,7 +4,7 @@ import gleam/fetch
 import gleam/http/request.{type Request}
 import gleam/javascript/promise.{type Promise}
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri.{type Uri, Uri}
@@ -21,11 +21,15 @@ pub type Settings {
     dns: Request(String),
     tangled: Request(String),
     relays: List(Request(String)),
-    appviews: List(Request(String)),
+    appviews: List(Appview),
     admin_labelers: List(Did),
     sign_up_servers: List(Request(String)),
     password_entry: PasswordEntry,
   )
+}
+
+pub type Appview {
+  Appview(address: Request(String), name: Option(String))
 }
 
 pub type PasswordEntry {
@@ -161,21 +165,35 @@ fn relays_decoder() -> Decoder(List(Request(String))) {
   }
 }
 
-fn default_appviews() -> List(Request(String)) {
-  [
-    at("public.api.bsky.app"),
-    at("api.blacksky.community"),
-    at("api.eurosky.network"),
-  ]
+fn default_appviews() -> List(Appview) {
+  list.map(
+    [
+      at("public.api.bsky.app"),
+      at("api.blacksky.community"),
+      at("api.eurosky.network"),
+    ],
+    appview,
+  )
 }
 
-fn appviews_decoder() -> Decoder(List(Request(String))) {
+fn appviews_decoder() -> Decoder(List(Appview)) {
   use appviews <- decode.map(servers_decoder())
 
   case appviews {
     [] -> default_appviews()
-    [_, ..] -> appviews
+    [_, ..] -> list.map(appviews, appview)
   }
+}
+
+fn appview(address: Request(String)) -> Appview {
+  let name = case address.host {
+    "public.api.bsky.app" -> Some("bluesky")
+    "api.blacksky.community" -> Some("blacksky")
+    "api.eurosky.network" -> Some("eurosky")
+    _ -> None
+  }
+
+  Appview(address:, name:)
 }
 
 fn servers_decoder() -> Decoder(List(Request(String))) {
