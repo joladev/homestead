@@ -21,6 +21,7 @@ pub type Settings {
     dns: Request(String),
     tangled: Request(String),
     relays: List(Request(String)),
+    appviews: List(Request(String)),
     admin_labelers: List(Did),
     sign_up_servers: List(Request(String)),
     password_entry: PasswordEntry,
@@ -76,6 +77,11 @@ pub fn decoder() -> Decoder(Settings) {
     default_relays(),
     relays_decoder(),
   )
+  use appviews <- decode.optional_field(
+    "appviews",
+    default_appviews(),
+    appviews_decoder(),
+  )
   use sign_up_servers <- decode.optional_field(
     "signUpServers",
     [],
@@ -97,6 +103,7 @@ pub fn decoder() -> Decoder(Settings) {
     dns:,
     tangled:,
     relays:,
+    appviews:,
     admin_labelers:,
     sign_up_servers:,
     password_entry:,
@@ -151,6 +158,23 @@ fn relays_decoder() -> Decoder(List(Request(String))) {
   case relays {
     [] -> default_relays()
     [_, ..] -> relays
+  }
+}
+
+fn default_appviews() -> List(Request(String)) {
+  [
+    at("public.api.bsky.app"),
+    at("api.blacksky.community"),
+    at("api.eurosky.network"),
+  ]
+}
+
+fn appviews_decoder() -> Decoder(List(Request(String))) {
+  use appviews <- decode.map(servers_decoder())
+
+  case appviews {
+    [] -> default_appviews()
+    [_, ..] -> appviews
   }
 }
 

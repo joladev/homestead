@@ -284,6 +284,56 @@ pub fn note(text: String, actions: List(Element(message))) -> Element(message) {
   ])
 }
 
+pub type Mark {
+  Confirms
+  Contradicts
+  Silent
+}
+
+pub fn check(
+  mark mark: Mark,
+  fact fact: String,
+  detail detail: Option(String),
+) -> Element(message) {
+  let summary = [
+    html.span([attribute.class("mark"), attribute.aria_hidden(True)], [
+      html.text(case mark {
+        Confirms -> "\u{2713}"
+        Contradicts -> "\u{2717}"
+        Silent -> "\u{2013}"
+      }),
+    ]),
+    html.span([attribute.class("fact")], [html.text(fact)]),
+  ]
+
+  case detail {
+    None -> html.span([attribute.class("check")], summary)
+    Some(detail) ->
+      html.details([attribute.class("check")], [
+        html.summary([], summary),
+        html.p([], [html.text(detail)]),
+      ])
+  }
+}
+
+pub fn note_with_detail(
+  fact fact: String,
+  detail detail: String,
+  actions actions: List(Element(message)),
+) -> Element(message) {
+  html.div([attribute.class("row note")], [
+    html.span([attribute.class("details"), attribute.aria_live("polite")], [
+      html.details([attribute.class("check")], [
+        html.summary([], [
+          html.span([attribute.class("fact")], [html.text(fact)]),
+        ]),
+        html.p([], [html.text(detail)]),
+      ]),
+    ]),
+    html.div([attribute.class("actions")], actions),
+  ])
+}
+
 pub fn listing(
   empty empty: String,
   rows rows: List(#(String, Element(message))),

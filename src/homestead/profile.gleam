@@ -10,7 +10,7 @@ import gleam/result
 import gleam/string
 import gleam/uri
 import homestead/browser
-import homestead/layout
+import homestead/layout.{type Mark, Confirms, Contradicts, Silent}
 import homestead/remote.{
   type Remote, type Submission, Failed, Idle, Loaded, Loading, Refused, Sending,
 }
@@ -863,12 +863,6 @@ fn view_handle(
   ])
 }
 
-type Mark {
-  Confirms
-  Contradicts
-  Silent
-}
-
 fn view_resolver(resolves: Remote(Bool), detail: String) -> Element(Message) {
   let name = "Identity resolver"
   let detail = Some(detail)
@@ -949,33 +943,13 @@ fn view_check(
   fact: String,
   detail: Option(String),
 ) -> Element(Message) {
-  let summary = [
-    html.span([attribute.class("mark"), attribute.aria_hidden(True)], [
-      html.text(case mark {
-        Confirms -> "\u{2713}"
-        Contradicts -> "\u{2717}"
-        Silent -> "\u{2013}"
-      }),
-    ]),
-    html.span([attribute.class("fact")], [html.text(fact)]),
-  ]
-
   layout.row(
     tone: case mark {
       Contradicts -> layout.Warning
       Confirms | Silent -> layout.Plain
     },
     name:,
-    details: [
-      case detail {
-        None -> html.span([attribute.class("check")], summary)
-        Some(detail) ->
-          html.details([attribute.class("check")], [
-            html.summary([], summary),
-            html.p([], [html.text(detail)]),
-          ])
-      },
-    ],
+    details: [layout.check(mark:, fact:, detail:)],
     actions: [],
   )
 }

@@ -167,6 +167,7 @@ pub type Account {
     contact_channel: Channel,
     contact_verified: Bool,
     is_admin: Bool,
+    is_active: Bool,
   )
 }
 
@@ -482,6 +483,7 @@ pub fn account() -> Query(Account) {
       decode.bool,
     )
     use is_admin <- decode.field("isAdmin", decode.bool)
+    use is_active <- decode.field("active", decode.bool)
 
     decode.success(Account(
       handle:,
@@ -490,6 +492,7 @@ pub fn account() -> Query(Account) {
       contact_channel:,
       contact_verified:,
       is_admin:,
+      is_active:,
     ))
   })
 }
@@ -1727,6 +1730,10 @@ pub fn set_language(code: String) -> Command(Nil) {
 
 pub fn request_account_deletion() -> Command(Nil) {
   command("com.atproto.server.requestAccountDelete", json.object([]))
+}
+
+pub fn activate_account() -> Command(Nil) {
+  command("com.atproto.server.activateAccount", json.object([]))
 }
 
 pub fn set_login_alerts(enabled: Bool) -> Command(Nil) {

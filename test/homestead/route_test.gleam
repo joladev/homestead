@@ -1,8 +1,8 @@
 import gleam/list
 import gleam/uri
 import homestead/route.{
-  Access, Account, Accounts, Admin, Advanced, AppPasswords, Collections,
-  ConnectedApps, Data, Delegation, DeleteAccount, Export, Flagged,
+  Access, Account, Accounts, Admin, Advanced, AppPasswords, Appviews,
+  Collections, ConnectedApps, Data, Delegation, DeleteAccount, Export, Flagged,
   IdentityDocument, NewRecord, NotFound, Notifications, Overview, Profile,
   Record, Records, Relays, Repository, Sessions, SignInMethods,
 }
@@ -12,6 +12,7 @@ pub fn every_page_survives_the_round_trip_through_its_path_test() {
     Overview,
     Account(Profile),
     Account(Notifications),
+    Account(Appviews),
     Account(DeleteAccount),
     Access(SignInMethods),
     Access(Sessions),

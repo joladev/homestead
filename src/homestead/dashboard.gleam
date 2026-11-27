@@ -10,6 +10,7 @@ import gleam/time/timestamp.{type Timestamp}
 import homestead/active_session
 import homestead/admin
 import homestead/app_password
+import homestead/appview
 import homestead/backlink
 import homestead/browser
 import homestead/connected_app
@@ -65,6 +66,7 @@ type Page {
   AppPasswordsPage(app_password.Model)
   ProfilePage(profile.Model)
   NotificationsPage(notification.Model)
+  AppviewsPage(appview.Model)
   SignInMethodsPage(sign_in_method.Model)
   ExportPage(export.Model)
   LabelsPage(label.Model)
@@ -196,6 +198,12 @@ fn open(
       )
     }
 
+    Account(route.Appviews) -> {
+      let #(page, effect) = appview.init(session, settings)
+
+      #(AppviewsPage(page), effect.map(effect, AppviewsProducedMessage))
+    }
+
     Access(SignInMethods) -> {
       let #(page, effect) = sign_in_method.init(session, local_offset)
 
@@ -291,6 +299,7 @@ pub fn departure(model: Model) -> Option(Departure) {
     | None, AppPasswordsPage(_)
     | None, ProfilePage(_)
     | None, NotificationsPage(_)
+    | None, AppviewsPage(_)
     | None, SignInMethodsPage(_)
     | None, ExportPage(_)
     | None, LabelsPage(_)
@@ -315,6 +324,7 @@ pub opaque type Message {
   AppPasswordsProducedMessage(app_password.Message)
   ProfileProducedMessage(profile.Message)
   NotificationsProducedMessage(notification.Message)
+  AppviewsProducedMessage(appview.Message)
   SignInMethodsProducedMessage(sign_in_method.Message)
   ExportProducedMessage(export.Message)
   LabelsProducedMessage(label.Message)
@@ -438,6 +448,15 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
 
+    AppviewsProducedMessage(message), AppviewsPage(page) -> {
+      let #(page, effect) = appview.update(page, message)
+
+      #(
+        Model(..model, page: AppviewsPage(page)),
+        effect.map(effect, AppviewsProducedMessage),
+      )
+    }
+
     SignInMethodsProducedMessage(message), SignInMethodsPage(page) -> {
       let #(page, effect) = sign_in_method.update(page, message)
 
@@ -541,6 +560,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     | BacklinkProducedMessage(_), _
     | SignInMethodsProducedMessage(_), _
     | NotificationsProducedMessage(_), _
+    | AppviewsProducedMessage(_), _
     | SessionsProducedMessage(_), _
     | ConnectedAppsProducedMessage(_), _
     | AppPasswordsProducedMessage(_), _
@@ -666,6 +686,10 @@ pub fn view(model: Model) -> Element(Message) {
 
       NotificationsPage(page) ->
         notification.view(page) |> element.map(NotificationsProducedMessage)
+
+      AppviewsPage(page) ->
+        appview.view(page, model.account)
+        |> element.map(AppviewsProducedMessage)
 
       SignInMethodsPage(page) ->
         sign_in_method.view(page)

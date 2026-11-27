@@ -17,6 +17,7 @@ pub type Route {
 pub type AccountPage {
   Profile
   Notifications
+  Appviews
   DeleteAccount
 }
 
@@ -69,6 +70,7 @@ pub const sections = [
     first: Account(Profile),
     rest: [
       Account(Notifications),
+      Account(Appviews),
       Account(DeleteAccount),
     ],
   ),
@@ -116,6 +118,7 @@ pub fn from_uri(uri: Uri) -> Route {
     [] -> Overview
     ["account", "profile"] -> Account(Profile)
     ["account", "notifications"] -> Account(Notifications)
+    ["account", "appviews"] -> Account(Appviews)
     ["account", "delete"] -> Account(DeleteAccount)
     ["access", "sign-in"] -> Access(SignInMethods)
     ["access", "sessions"] -> Access(Sessions)
@@ -159,6 +162,7 @@ pub fn to_path(route: Route) -> String {
     Overview -> "/"
     Account(Profile) -> "/account/profile"
     Account(Notifications) -> "/account/notifications"
+    Account(Appviews) -> "/account/appviews"
     Account(DeleteAccount) -> "/account/delete"
     Access(SignInMethods) -> "/access/sign-in"
     Access(Sessions) -> "/access/sessions"
@@ -195,6 +199,7 @@ pub fn label(route: Route) -> String {
     Overview -> "Overview"
     Account(Profile) -> "Profile and contact"
     Account(Notifications) -> "Notifications"
+    Account(Appviews) -> "Appviews"
     Account(DeleteAccount) -> "Delete account"
     Access(SignInMethods) -> "Sign-in methods"
     Access(Sessions) -> "Sessions"

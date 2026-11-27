@@ -1593,6 +1593,10 @@ input:disabled {
         grid-row: 1;
     }
 
+    .row.note:has(> .actions:not(:empty)) > .details {
+        grid-column: 1;
+    }
+
     .row > :only-child .action {
         flex: 1;
         width: 100%;

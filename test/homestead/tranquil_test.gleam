@@ -42,6 +42,7 @@ pub fn the_account_is_read_from_the_session_answer_test() {
       contact_channel: Email,
       contact_verified: False,
       is_admin: True,
+      is_active: True,
     ))
 }
 

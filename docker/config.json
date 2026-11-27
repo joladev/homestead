@@ -9,6 +9,7 @@
   "tangled": "{{env "HOMESTEAD_TANGLED"}}",
   "adminLabelers": "{{env "HOMESTEAD_ADMIN_LABELERS"}}",
   "relays": "{{env "HOMESTEAD_RELAYS"}}",
+  "appviews": "{{env "HOMESTEAD_APPVIEWS"}}",
   "signUpServers": "{{env "HOMESTEAD_SIGNUP_SERVERS"}}",
   "passwordEntry": "{{env "HOMESTEAD_PASSWORD_ENTRY"}}"
 }
